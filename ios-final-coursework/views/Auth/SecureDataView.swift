@@ -5,12 +5,11 @@ public struct SecureDataView: View {
     @StateObject private var authService = AuthenticationService()
     @State private var showingAlert = false
     @State private var alertMessage = ""
-    
+
     public init() {}
-    
+
     public var body: some View {
         VStack(spacing: 0) {
-            // Top Navigation Back
             HStack {
                 CustomBackButton(title: "Sign In") {
                     navState.navigate(to: .signIn)
@@ -20,16 +19,13 @@ public struct SecureDataView: View {
             .padding(.top, 12)
             .padding(.bottom, 24)
             .padding(.horizontal, 24)
-            
-            // Large Gradient Card
+
             VStack(spacing: 20) {
-                // Face ID Icon Graphic
                 ZStack {
                     RoundedRectangle(cornerRadius: 22, style: .continuous)
                         .fill(Color(red: 0.85, green: 0.96, blue: 0.95))
                         .frame(width: 84, height: 84)
-                    
-                    // Face ID Sensor & Face Graphic
+
                     ZStack {
                         Image(systemName: "faceid")
                             .font(.system(size: 46, weight: .light))
@@ -37,21 +33,20 @@ public struct SecureDataView: View {
                     }
                 }
                 .padding(.top, 16)
-                
-                // Titles
+
                 Text("Secure your energy\ndata")
                     .font(.system(size: 26, weight: .bold))
                     .foregroundColor(.white)
                     .multilineTextAlignment(.center)
                     .lineSpacing(2)
-                
+
                 Text("Protect your energy information and\npersonal data.")
                     .font(.system(size: 15, weight: .regular))
                     .foregroundColor(.white.opacity(0.92))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 12)
-                
-                Text("Use Face ID to sign in quickly and securely to your dashboard.")
+
+                Text("Use Face ID to sign in quickly and securely to your dashboard.\nFace ID helps keep access to your account private. You can use a passcode instead.")
                     .font(.system(size: 13, weight: .regular))
                     .foregroundColor(.white.opacity(0.75))
                     .multilineTextAlignment(.center)
@@ -66,20 +61,23 @@ public struct SecureDataView: View {
             .cornerRadius(24)
             .shadow(color: Color.black.opacity(0.12), radius: 14, x: 0, y: 8)
             .padding(.horizontal, 24)
-            
+
             Spacer()
-            
-            // Action Buttons
+
             VStack(spacing: 12) {
                 GradientButton(title: "Sign In with Face ID") {
                     authService.authenticateWithBiometrics { success in
-                        navState.isAuthenticated = true
-                        navState.navigate(to: .home)
+                        if success {
+                            navState.isAuthenticated = true
+                            navState.navigate(to: .home)
+                        } else {
+                            navState.navigate(to: .createPasscode)
+                        }
                     }
                 }
-                
-                OutlineButton(title: "Sign In with Email") {
-                    navState.navigate(to: .signIn)
+
+                OutlineButton(title: "Use Passcode") {
+                    navState.navigate(to: .createPasscode)
                 }
             }
             .padding(.horizontal, 24)

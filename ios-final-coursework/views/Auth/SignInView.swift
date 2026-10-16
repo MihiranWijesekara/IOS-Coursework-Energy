@@ -92,13 +92,11 @@ public struct SignInView: View {
             
             // Action Buttons
             VStack(spacing: 12) {
-                // Sign In Button (Navigates to Dashboard)
                 GradientButton(title: "Sign In") {
                     navState.isAuthenticated = true
                     navState.navigate(to: .home)
                 }
-                
-                // Navigate to Face ID Sign In Screen
+
                 OutlineButton(title: "Sign In with Face ID") {
                     navState.navigate(to: .secureData)
                 }

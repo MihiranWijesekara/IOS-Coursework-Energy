@@ -71,5 +71,11 @@ public struct SplashScreenView: View {
                 }
             }
         }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            withAnimation(.easeInOut(duration: 0.25)) {
+                navState.navigate(to: .createAccount)
+            }
+        }
     }
 }
