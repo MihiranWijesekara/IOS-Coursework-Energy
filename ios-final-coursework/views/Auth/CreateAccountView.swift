@@ -16,8 +16,8 @@ public struct CreateAccountView: View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 0) {
                 // Top Navigation Back
-                CustomBackButton(title: "Welcome") {
-                    navState.navigate(to: .splash)
+                CustomBackButton(title: "Sign In") {
+                    navState.navigate(to: .signIn)
                 }
                 .padding(.top, 12)
                 .padding(.bottom, 20)

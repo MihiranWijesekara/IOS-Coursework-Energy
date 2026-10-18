@@ -90,9 +90,18 @@ public struct SignInView: View {
             }
             .padding(.bottom, 18)
             
-            // Sign In Button
-            GradientButton(title: "Sign In") {
-                navState.navigate(to: .home)
+            // Action Buttons
+            VStack(spacing: 12) {
+                // Sign In Button (Navigates to Dashboard)
+                GradientButton(title: "Sign In") {
+                    navState.isAuthenticated = true
+                    navState.navigate(to: .home)
+                }
+                
+                // Navigate to Face ID Sign In Screen
+                OutlineButton(title: "Sign In with Face ID") {
+                    navState.navigate(to: .secureData)
+                }
             }
             .padding(.bottom, 24)
         }

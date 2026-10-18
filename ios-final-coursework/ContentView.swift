@@ -26,8 +26,6 @@ public struct ContentView: View {
                     SignInView()
                 case .secureData:
                     SecureDataView()
-                case .createPasscode:
-                    CreatePasscodeView()
                 case .home:
                     HomeDashboardView()
                 case .analysis:

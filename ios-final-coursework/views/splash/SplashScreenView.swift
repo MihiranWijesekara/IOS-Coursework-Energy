@@ -64,10 +64,11 @@ public struct SplashScreenView: View {
                     .padding(.bottom, 36)
             }
         }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            withAnimation(.easeInOut(duration: 0.25)) {
-                navState.navigate(to: .createAccount)
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                withAnimation(.easeInOut(duration: 0.35)) {
+                    navState.navigate(to: .signIn)
+                }
             }
         }
     }

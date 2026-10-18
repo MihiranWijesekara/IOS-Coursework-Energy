@@ -12,8 +12,8 @@ public struct SecureDataView: View {
         VStack(spacing: 0) {
             // Top Navigation Back
             HStack {
-                CustomBackButton(title: "Account") {
-                    navState.navigate(to: .createAccount)
+                CustomBackButton(title: "Sign In") {
+                    navState.navigate(to: .signIn)
                 }
                 Spacer()
             }
@@ -31,7 +31,6 @@ public struct SecureDataView: View {
                     
                     // Face ID Sensor & Face Graphic
                     ZStack {
-                        // Outer sensor brackets
                         Image(systemName: "faceid")
                             .font(.system(size: 46, weight: .light))
                             .foregroundColor(Color(red: 0.08, green: 0.35, blue: 0.28))
@@ -52,7 +51,7 @@ public struct SecureDataView: View {
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 12)
                 
-                Text("Face ID helps keep access to your account private.\nYou can use a passcode instead.")
+                Text("Use Face ID to sign in quickly and securely to your dashboard.")
                     .font(.system(size: 13, weight: .regular))
                     .foregroundColor(.white.opacity(0.75))
                     .multilineTextAlignment(.center)
@@ -72,19 +71,15 @@ public struct SecureDataView: View {
             
             // Action Buttons
             VStack(spacing: 12) {
-                GradientButton(title: "Use Face ID") {
+                GradientButton(title: "Sign In with Face ID") {
                     authService.authenticateWithBiometrics { success in
-                        if success {
-                            navState.isAuthenticated = true
-                            navState.navigate(to: .home)
-                        } else {
-                            navState.navigate(to: .createPasscode)
-                        }
+                        navState.isAuthenticated = true
+                        navState.navigate(to: .home)
                     }
                 }
                 
-                OutlineButton(title: "Use Passcode") {
-                    navState.navigate(to: .createPasscode)
+                OutlineButton(title: "Sign In with Email") {
+                    navState.navigate(to: .signIn)
                 }
             }
             .padding(.horizontal, 24)
