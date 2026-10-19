@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import SwiftData
 
 @main
 struct ios_final_courseworkApp: App {
@@ -13,6 +14,14 @@ struct ios_final_courseworkApp: App {
         WindowGroup {
             ContentView()
         }
+        .modelContainer(for: [
+            User.self,
+            Appliance.self,
+            ElectricityBill.self,
+            Prediction.self,
+            WeatherData.self,
+            SavingsScenario.self
+        ])
     }
 }
  
