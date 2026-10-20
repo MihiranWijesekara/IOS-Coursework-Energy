@@ -11,6 +11,7 @@ public struct AddApplianceView: View {
     @EnvironmentObject var navState: AppNavigationState
     
     @State private var applianceName: String = "Air Conditioner"
+    @State private var applianceBrandName: String = "CoolBreeze"
     @State private var category: String = "Cooling"
     @State private var powerRating: String = "1,200 W"
     @State private var hoursPerDay: String = "6"
@@ -61,6 +62,20 @@ public struct AddApplianceView: View {
                                 .foregroundColor(EnergyLensTheme.textSecondary)
                             
                             TextField("Appliance name", text: $applianceName)
+                                .font(.system(size: 16, weight: .regular))
+                                .foregroundColor(EnergyLensTheme.textPrimary)
+                        }
+                        
+                        Divider()
+                            .background(EnergyLensTheme.fieldBorder)
+
+                        // Appliance brand name
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Appliance Brand name")
+                                .font(.system(size: 13, weight: .regular))
+                                .foregroundColor(EnergyLensTheme.textSecondary)
+                            
+                            TextField("Appliance Brand name", text: $applianceBrandName)
                                 .font(.system(size: 16, weight: .regular))
                                 .foregroundColor(EnergyLensTheme.textPrimary)
                         }

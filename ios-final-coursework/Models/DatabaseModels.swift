@@ -66,17 +66,16 @@ public final class Appliance {
     @Attribute(.unique) public var id: UUID
     public var name: String
     public var brand: String?
-    public var category: String?          // e.g. "Cooling", "Cleaning", "Lighting"
-    public var powerW: Int                // Power rating in Watts
+    public var category: String?
+    public var powerW: Int
     public var quantity: Int
-    public var hoursPerDay: Double        // Operating hours on an active usage day
-    public var daysPerMonth: Int          // Exact active days in a month (e.g. 30 for fridge, 4-8 for washing machine)
-    public var daysPerWeek: Double?       // Optional frequency helper (e.g. 1.0 or 2.0 days/week)
-    public var usagePattern: String?      // e.g. "Morning", "Evening", "Night", "All Day", "Weekly (1-2 days)"
-    
+    public var hoursPerDay: Double
+    public var usageMode: String         // "All day" or "Weekly"
+    public var daysPerWeek: Int?         // 1...7 when usageMode == "Weekly"
+
     // Relationship to User
     public var user: User?
-    
+
     public init(
         id: UUID = UUID(),
         name: String,
@@ -85,9 +84,8 @@ public final class Appliance {
         powerW: Int,
         quantity: Int = 1,
         hoursPerDay: Double,
-        daysPerMonth: Int = 30,
-        daysPerWeek: Double? = nil,
-        usagePattern: String? = nil,
+        usageMode: String = "All day",
+        daysPerWeek: Int? = nil,
         user: User? = nil
     ) {
         self.id = id
@@ -97,26 +95,26 @@ public final class Appliance {
         self.powerW = powerW
         self.quantity = quantity
         self.hoursPerDay = hoursPerDay
-        
-        // If daysPerWeek is given and daysPerMonth is default, automatically compute realistic monthly days:
-        if let dpw = daysPerWeek, daysPerMonth == 30 {
-            self.daysPerMonth = Int(round(dpw * 4.33)) // ~4.33 weeks per month
-        } else {
-            self.daysPerMonth = daysPerMonth
-        }
-        
+        self.usageMode = usageMode
         self.daysPerWeek = daysPerWeek
-        self.usagePattern = usagePattern
         self.user = user
     }
-    
-    /// Accurate Monthly kWh consumption:
-    /// Accounts for periodic appliances (e.g., washing machine running 2 days a week = ~8 days per month)
+
+    /// Estimated monthly kWh based on the selected operating mode.
+    /// All-day appliances use 30 days/month; weekly appliances use the selected days per week x ~4.33 weeks.
     public var estimatedMonthlyKwh: Double {
-        let effectiveDays: Double = Double(daysPerMonth)
+        let effectiveDays: Double
+
+        if usageMode == "Weekly" {
+            let weeklyDays = Double(daysPerWeek ?? 1)
+            effectiveDays = weeklyDays * 4.33
+        } else {
+            effectiveDays = 30.0
+        }
+
         return (Double(powerW * quantity) * hoursPerDay * effectiveDays) / 1000.0
     }
-    
+
     /// Estimated daily average kWh across the full month
     public var estimatedDailyAverageKwh: Double {
         return estimatedMonthlyKwh / 30.0
@@ -265,3 +263,4 @@ public final class WeatherData {
         self.user = user
     }
 }
+
