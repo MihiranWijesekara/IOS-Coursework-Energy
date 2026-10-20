@@ -49,7 +49,7 @@ public struct ContentView: View {
                 case .addAppliance:
                     AddApplianceView()
                 case .applianceDetail:
-                    ApplianceDetailView()
+                    ApplianceDetailView(applianceId: navState.selectedApplianceId)
                 case .weatherDetails:
                     WeatherDetailsView()
                 case .nextMonthPrediction:

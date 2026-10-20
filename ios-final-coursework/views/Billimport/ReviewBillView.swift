@@ -6,15 +6,35 @@
 //
 
 import SwiftUI
+import SwiftData
 
 public struct ReviewBillView: View {
     @EnvironmentObject var navState: AppNavigationState
+    @Environment(\.modelContext) private var modelContext
+    @State private var billingPeriod: String
+    @State private var previousReading: String
+    @State private var currentReading: String
+    @State private var consumption: String
+    @State private var billAmount: String
+    @State private var rawText: String
+    @State private var isSavingBill = false
+    @State private var saveError: String = ""
 
-    @State private var billingPeriod: String = "01 Aug – 31 Aug 2025"
-    @State private var previousReading: String = "12,450 kWh"
-    @State private var currentReading: String = "12,630 kWh"
-    @State private var consumption: String = "180 kWh"
-    @State private var billAmount: String = "LKR 7,850"
+    public init(extractedBill: ExtractedBillData = .sample) {
+        _billingPeriod = State(initialValue: extractedBill.billingPeriod)
+        _previousReading = State(initialValue: extractedBill.previousReading)
+        _currentReading = State(initialValue: extractedBill.currentReading)
+        _consumption = State(initialValue: extractedBill.consumptionKwh)
+        _billAmount = State(initialValue: extractedBill.billAmount)
+        _rawText = State(initialValue: extractedBill.rawText)
+
+        _isShowingEditModal = State(initialValue: false)
+        _editBillingPeriod = State(initialValue: "")
+        _editPreviousReading = State(initialValue: "")
+        _editCurrentReading = State(initialValue: "")
+        _editConsumption = State(initialValue: "")
+        _editBillAmount = State(initialValue: "")
+    }
 
     @State private var isShowingEditModal: Bool = false
     @State private var editBillingPeriod: String = ""
@@ -22,8 +42,6 @@ public struct ReviewBillView: View {
     @State private var editCurrentReading: String = ""
     @State private var editConsumption: String = ""
     @State private var editBillAmount: String = ""
-
-    public init() {}
 
     private func openEditModal() {
         editBillingPeriod = billingPeriod
@@ -240,8 +258,18 @@ public struct ReviewBillView: View {
 
                     Spacer(minLength: 30)
 
-                    GradientButton(title: "Continue") {
-                        navState.navigate(to: .billAnalysisResult)
+                    VStack(spacing: 12) {
+                        GradientButton(title: "Save confirmed bill") {
+                            Task {
+                                await saveConfirmedBill()
+                            }
+                        }
+
+                        if !saveError.isEmpty {
+                            Text(saveError)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(.red)
+                        }
                     }
                     .padding(.bottom, 24)
                 }
@@ -356,4 +384,69 @@ public struct ReviewBillView: View {
             )
         }
     }
+
+    @MainActor
+    private func saveConfirmedBill() async {
+        isSavingBill = true
+        saveError = ""
+
+        do {
+            let parsedPeriod = parsePeriod(billingPeriod)
+            let prevReadingValue = Int(previousReading.filter { $0.isNumber }) ?? 0
+            let currentReadingValue = Int(currentReading.filter { $0.isNumber }) ?? 0
+            let consumptionValue = Double(consumption.filter { $0.isNumber || $0 == "." }) ?? 0
+            let amountValue = Double(billAmount.filter { $0.isNumber || $0 == "." }) ?? 0
+
+            let bill = ElectricityBill(
+                periodStart: parsedPeriod.0,
+                periodEnd: parsedPeriod.1,
+                prevReading: prevReadingValue == 0 ? nil : prevReadingValue,
+                currReading: currentReadingValue == 0 ? nil : currentReadingValue,
+                consumptionKwh: max(consumptionValue, 0),
+                billAmount: max(amountValue, 0),
+                currency: "LKR",
+                user: nil
+            )
+
+            modelContext.insert(bill)
+            try modelContext.save()
+
+            isSavingBill = false
+            navState.navigate(to: .billAnalysisResult)
+        } catch {
+            isSavingBill = false
+            saveError = "Unable to save this bill: \(error.localizedDescription)"
+        }
+    }
+
+    private func parsePeriod(_ value: String) -> (Date, Date) {
+        let now = Date()
+        let calendar = Calendar.current
+
+        if let dateRange = parseDateRange(from: value) {
+            return dateRange
+        }
+
+        let start = calendar.date(byAdding: .month, value: -1, to: now) ?? now
+        let end = now
+        return (start, end)
+    }
+
+    private func parseDateRange(from text: String) -> (Date, Date)? {
+        let pattern = #"(\d{1,2})\s+([A-Za-z]{3,9})\s*(?:-|–|to)\s*(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{4})"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              let range = Range(match.range, in: text) else {
+            return nil
+        }
+
+        let matched = String(text[range])
+        let components = matched.split(whereSeparator: { !$0.isLetter && !$0.isNumber && $0 != "-" && $0 != "–" && $0 != " " }).map(String.init)
+        if components.count >= 4 {
+            return (Date(), Date())
+        }
+
+        return nil
+    }
 }
+

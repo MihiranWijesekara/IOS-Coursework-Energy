@@ -6,15 +6,21 @@
 //
 
 import SwiftUI
+import SwiftData
 
 public struct ApplianceDetailView: View {
     @EnvironmentObject var navState: AppNavigationState
+    @Environment(\.modelContext) private var modelContext
+
+    public let applianceId: UUID?
+
+    @State private var appliance: Appliance?
     @State private var isEditing = false
-    
-    private let usageMode: String = "All day"
-    private let daysPerWeek: Int = 2
-    
-    public init() {}
+
+    public init(applianceId: UUID? = nil) {
+        self.applianceId = applianceId
+        self._appliance = State(initialValue: nil)
+    }
     
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -40,31 +46,31 @@ public struct ApplianceDetailView: View {
             
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 18) {
-                    // Title
-                    Text("Air Conditioner")
-                        .font(.system(size: 30, weight: .bold))
-                        .foregroundColor(EnergyLensTheme.textPrimary)
-                    
-                    // Main Highlight Card
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Estimated August contribution")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(Color(red: 0.72, green: 0.92, blue: 0.82))
-                        
-                        HStack(alignment: .firstTextBaseline, spacing: 6) {
-                            Text("72")
-                                .font(.system(size: 52, weight: .bold))
-                                .foregroundColor(.white)
-                            
-                            Text("kWh")
-                                .font(.system(size: 22, weight: .regular))
-                                .foregroundColor(.white)
-                        }
-                        
-                        Text("40% of your 180 kWh bill")
-                            .font(.system(size: 13, weight: .regular))
-                            .foregroundColor(Color(red: 0.72, green: 0.92, blue: 0.82))
-                    }
+                                    // Title
+                                    Text(appliance?.name ?? "Air Conditioner")
+                                        .font(.system(size: 30, weight: .bold))
+                                        .foregroundColor(EnergyLensTheme.textPrimary)
+                                    
+                                    // Main Highlight Card
+                                    VStack(alignment: .leading, spacing: 10) {
+                                        Text("Estimated Monthly Contribution")
+                                            .font(.system(size: 13, weight: .medium))
+                                            .foregroundColor(Color(red: 0.72, green: 0.92, blue: 0.82))
+                                        
+                                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                            Text("\(Int(appliance?.estimatedMonthlyKwh ?? 72))")
+                                                .font(.system(size: 52, weight: .bold))
+                                                .foregroundColor(.white)
+                                            
+                                            Text("kWh")
+                                                .font(.system(size: 22, weight: .regular))
+                                                .foregroundColor(.white)
+                                        }
+                                        
+                                        Text("Based on your monthly appliance profile")
+                                            .font(.system(size: 13, weight: .regular))
+                                            .foregroundColor(Color(red: 0.72, green: 0.92, blue: 0.82))
+                                    }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(20)
                     .background(EnergyLensTheme.cardGradient)
@@ -121,16 +127,16 @@ public struct ApplianceDetailView: View {
                         
                         // Info card
                         VStack(spacing: 12) {
-                            profileRow(label: "Nameplate power", value: "1,200 W")
+                            profileRow(label: "Nameplate power", value: "\(appliance?.powerW ?? 1200) W")
                             Divider().background(EnergyLensTheme.fieldBorder)
-                            profileRow(label: "Daily usage", value: "6 h/day")
+                            profileRow(label: "Daily usage", value: "\(String(format: "%.1f", appliance?.hoursPerDay ?? 6.0)) h/day")
                             Divider().background(EnergyLensTheme.fieldBorder)
-                            profileRow(label: "Quantity", value: "1 unit")
+                            profileRow(label: "Quantity", value: "\(appliance?.quantity ?? 1) unit")
                             Divider().background(EnergyLensTheme.fieldBorder)
-                            profileRow(label: "Usage mode", value: usageMode)
-                            if usageMode == "Weekly" {
+                            profileRow(label: "Usage mode", value: appliance?.usageMode ?? "All day")
+                            if appliance?.usageMode == "Weekly" {
                                 Divider().background(EnergyLensTheme.fieldBorder)
-                                profileRow(label: "Days per week", value: "\(daysPerWeek) days")
+                                profileRow(label: "Days per week", value: "\(appliance?.daysPerWeek ?? 1) days")
                             }
                         }
                         .padding(18)
@@ -142,41 +148,45 @@ public struct ApplianceDetailView: View {
                         )
                     }
                     
-                    // Footnote
-                    Text("72 kWh is calibrated to your bill and appliance profiles. It is not a measured reading or simply power × hours.")
-                        .font(.system(size: 13, weight: .regular))
-                        .foregroundColor(EnergyLensTheme.textSecondary)
-                        .lineSpacing(2)
-                    
-                    // Callout
-                    Text("Try reducing daily AC usage from 6 to 4 hours in the simulator.")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(Color(red: 0.10, green: 0.38, blue: 0.48))
-                        .lineSpacing(2)
-                        .padding(16)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color(red: 0.90, green: 0.96, blue: 0.98))
-                        .cornerRadius(14)
-                    
-                    Spacer(minLength: 20)
+//                    // Footnote
+//                    Text("72 kWh is calibrated to your bill and appliance profiles. It is not a measured reading or simply power × hours.")
+//                        .font(.system(size: 13, weight: .regular))
+//                        .foregroundColor(EnergyLensTheme.textSecondary)
+//                        .lineSpacing(2)
+//                    
+//                    // Callout
+//                    Text("Try reducing daily AC usage from 6 to 4 hours in the simulator.")
+//                        .font(.system(size: 14, weight: .medium))
+//                        .foregroundColor(Color(red: 0.10, green: 0.38, blue: 0.48))
+//                        .lineSpacing(2)
+//                        .padding(16)
+//                        .frame(maxWidth: .infinity, alignment: .leading)
+//                        .background(Color(red: 0.90, green: 0.96, blue: 0.98))
+//                        .cornerRadius(14)
+//                    
+//                    Spacer(minLength: 20)
                     
                     // Open Simulator Button
                     GradientButton(title: "Open Energy Saving Simulator") {
                         navState.navigate(to: .savingsSimulator)
                     }
+                    .padding(.bottom, 10)
                     .padding(.bottom, 24)
                 }
                 .padding(.horizontal, 24)
             }
         }
         .background(Color.white.ignoresSafeArea())
+        .onAppear {
+            loadAppliance()
+        }
         .sheet(isPresented: $isEditing) {
             editApplianceSheet
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
     }
-    
+
     private var editApplianceSheet: some View {
         VStack(spacing: 0) {
             HStack {
@@ -193,10 +203,26 @@ public struct ApplianceDetailView: View {
             .padding(.horizontal, 20)
             .padding(.top, 10)
 
-            AddApplianceView()
-                .environmentObject(navState)
+            AddApplianceView(appliance: appliance) {
+                isEditing = false
+                loadAppliance()
+            }
+            .environmentObject(navState)
         }
         .background(Color.white.ignoresSafeArea())
+    }
+
+    private func loadAppliance() {
+        guard let id = applianceId else { return }
+        do {
+            let predicate = #Predicate<Appliance> { item in
+                item.id == id
+            }
+            let descriptor = FetchDescriptor<Appliance>(predicate: predicate)
+            self.appliance = try modelContext.fetch(descriptor).first
+        } catch {
+            print("Failed to fetch appliance by ID: \(error)")
+        }
     }
     
     @ViewBuilder

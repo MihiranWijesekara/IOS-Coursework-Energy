@@ -108,6 +108,7 @@ public final class AppNavigationState: ObservableObject {
 //    
     // Bill Data and Simulator State
     @Published public var selectedAppliance: String = "Air Conditioner"
+    @Published public var selectedApplianceId: UUID? = nil
     @Published public var simulationHours: Double = 4.0
     @Published public var currentAcHours: Double = 6.0
 

@@ -9,21 +9,31 @@ import SwiftUI
 
 public struct AddApplianceView: View {
     @EnvironmentObject var navState: AppNavigationState
+    @Environment(\.modelContext) private var modelContext
+    @State private var showAlert = false
+    @State private var alertMessage = ""
+    @State private var applianceToEdit: Appliance?
     
-    @State private var applianceName: String = "Air Conditioner"
-    @State private var applianceBrandName: String = "CoolBreeze"
-    @State private var category: String = "Cooling"
-    @State private var powerRating: String = "1,200 W"
-    @State private var hoursPerDay: String = "6"
+    private let onSave: (() -> Void)?
+    
+    @State private var applianceName: String = ""
+    @State private var applianceBrandName: String = ""
+    @State private var category: String = "Select a category"
+    @State private var customCategory: String = ""
+    @State private var powerRating: String = ""
+    @State private var hoursPerDay: String = ""
     @State private var quantity: Int = 1
-    @State private var usageMode: String = "All day"
+    @State private var usageMode: String = "Select a usage mode"
     @State private var daysPerWeek: Int = 1
     
-    let categories = ["Cooling", "Refrigeration", "Ventilation", "Entertainment", "Cleaning", "Lighting", "Cooking"]
+    let categories = ["Cooling", "Refrigeration", "Ventilation", "Entertainment", "Cleaning", "Lighting", "Cooking", "Other"]
     let usageModes = ["All day", "Weekly"]
     let weeklyDays = Array(1...7)
     
-    public init() {}
+    public init(appliance: Appliance? = nil, onSave: (() -> Void)? = nil) {
+        self.onSave = onSave
+        self._applianceToEdit = State(initialValue: appliance)
+    }
     
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -91,7 +101,12 @@ public struct AddApplianceView: View {
                             
                             Menu {
                                 ForEach(categories, id: \.self) { cat in
-                                    Button(cat) { category = cat }
+                                    Button(cat) {
+                                        category = cat
+                                        if cat != "Other" {
+                                            customCategory = ""
+                                        }
+                                    }
                                 }
                             } label: {
                                 HStack {
@@ -107,6 +122,18 @@ public struct AddApplianceView: View {
                                 .padding(.vertical, 10)
                                 .background(Color(red: 0.90, green: 0.96, blue: 0.98))
                                 .cornerRadius(10)
+                            }
+
+                            if category == "Other" {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text("Custom category")
+                                        .font(.system(size: 13, weight: .regular))
+                                        .foregroundColor(EnergyLensTheme.textSecondary)
+
+                                    TextField("Enter appliance category", text: $customCategory)
+                                        .font(.system(size: 16, weight: .regular))
+                                        .foregroundColor(EnergyLensTheme.textPrimary)
+                                }
                             }
                         }
                         
@@ -262,7 +289,7 @@ public struct AddApplianceView: View {
                     
                     // Save Button
                     GradientButton(title: "Save Appliance") {
-                        navState.navigate(to: .appliances)
+                        saveAppliance()
                     }
                     .padding(.bottom, 24)
                 }
@@ -270,5 +297,87 @@ public struct AddApplianceView: View {
             }
         }
         .background(Color.white.ignoresSafeArea())
+        .onAppear {
+            if let appliance = applianceToEdit {
+                applianceName = appliance.name
+                applianceBrandName = appliance.brand ?? ""
+                category = appliance.category ?? "Select a category"
+                customCategory = category == "Other" ? "" : ""
+                powerRating = "\(appliance.powerW)"
+                hoursPerDay = "\(appliance.hoursPerDay)"
+                quantity = appliance.quantity
+                usageMode = appliance.usageMode
+                daysPerWeek = appliance.daysPerWeek ?? 1
+            }
+        }
+        .alert("Appliance", isPresented: $showAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(alertMessage)
+        }
+    }
+
+    private func saveAppliance() {
+        let trimmedName = applianceName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedName.isEmpty {
+            alertMessage = "Please add the appliance name."
+            showAlert = true
+            return
+        }
+
+        let cleanedPower = powerRating.filter { $0.isNumber }
+        guard let powerValue = Int(cleanedPower), powerValue > 0 else {
+            alertMessage = "Power rating must be a valid number greater than zero."
+            showAlert = true
+            return
+        }
+
+        guard let hoursValue = Double(hoursPerDay.trimmingCharacters(in: .whitespacesAndNewlines)), hoursValue > 0 else {
+            alertMessage = "Hours per day must be a valid number greater than zero."
+            showAlert = true
+            return
+        }
+
+        let finalUsageMode = usageMode == "Weekly" ? "Weekly" : "All day"
+        let finalDaysPerWeek = finalUsageMode == "Weekly" ? min(max(1, daysPerWeek), 7) : nil
+        let finalCategory = category == "Other" ? (customCategory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Other" : customCategory) : category
+
+        do {
+            if let applianceToEdit {
+                try SwiftDataApplianceService.shared.updateAppliance(
+                    context: modelContext,
+                    appliance: applianceToEdit,
+                    name: trimmedName,
+                    brand: applianceBrandName,
+                    category: finalCategory,
+                    powerW: powerValue,
+                    quantity: quantity,
+                    hoursPerDay: hoursValue,
+                    usageMode: finalUsageMode,
+                    daysPerWeek: finalDaysPerWeek
+                )
+            } else {
+                _ = try SwiftDataApplianceService.shared.createAppliance(
+                    context: modelContext,
+                    name: trimmedName,
+                    brand: applianceBrandName,
+                    category: finalCategory,
+                    powerW: powerValue,
+                    quantity: quantity,
+                    hoursPerDay: hoursValue,
+                    usageMode: finalUsageMode,
+                    daysPerWeek: finalDaysPerWeek
+                )
+            }
+
+            if let onSave {
+                onSave()
+            } else {
+                navState.navigate(to: .appliances)
+            }
+        } catch {
+            alertMessage = "Unable to save appliance. Please try again."
+            showAlert = true
+        }
     }
 }

@@ -10,9 +10,13 @@ import PhotosUI
 
 public struct SelectBillImageView: View {
     @EnvironmentObject var navState: AppNavigationState
+    @Environment(\.modelContext) private var modelContext
     @State private var selectedPhotoItem: PhotosPickerItem? = nil
     @State private var showCameraPicker = false
     @State private var inputImage: UIImage? = nil
+    @State private var isProcessingOCR = false
+    @State private var errorMessage = ""
+    @State private var extractedBillData: ExtractedBillData? = nil
     public init() {}
 
     public var body: some View {
@@ -38,67 +42,69 @@ public struct SelectBillImageView: View {
                     .padding(.bottom, 4)
 
                     PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
-                                            HStack(spacing: 12) {
-                                                Image(systemName: "photo.on.rectangle")
-                                                    .font(.system(size: 18, weight: .semibold))
-                                                    .foregroundColor(.white)
+                        HStack(spacing: 12) {
+                            if isProcessingOCR {
+                                ProgressView()
+                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                    .scaleEffect(0.9)
+                            } else {
+                                Image(systemName: "photo.on.rectangle")
+                                    .font(.system(size: 18, weight: .semibold))
+                                    .foregroundColor(.white)
+                            }
 
-                                                Text("Choose from Photos")
-                                                    .font(.system(size: 16, weight: .bold))
-                                                    .foregroundColor(.white)
+                            Text(isProcessingOCR ? "Recognising bill..." : "Choose from Photos")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundColor(.white)
 
-                                                Spacer()
+                            Spacer()
 
-                                                Image(systemName: "chevron.right")
-                                                    .font(.system(size: 14, weight: .bold))
-                                                    .foregroundColor(.white.opacity(0.85))
-                                            }
-                                            .padding(.vertical, 16)
-                                            .padding(.horizontal, 18)
-                                            .background(EnergyLensTheme.buttonGradient)
-                                            .cornerRadius(14)
-                                            .shadow(color: Color.black.opacity(0.12), radius: 6, x: 0, y: 3)
-                                        }
-                                        .onChange(of: selectedPhotoItem) { newItem in
-                                            Task {
-                                                if let data = try? await newItem?.loadTransferable(type: Data.self),
-                                                   let uiImage = UIImage(data: data) {
-                                                    inputImage = uiImage
-                                                    // Navigate to scanning/review screen after selection
-                                                    navState.navigate(to: .scanningBill)
-                                                }
-                                            }
-                                        }
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundColor(.white.opacity(0.85))
+                        }
+                        .padding(.vertical, 16)
+                        .padding(.horizontal, 18)
+                        .background(EnergyLensTheme.buttonGradient)
+                        .cornerRadius(14)
+                        .shadow(color: Color.black.opacity(0.12), radius: 6, x: 0, y: 3)
+                    }
+                    .onChange(of: selectedPhotoItem) { _, newItem in
+                        Task {
+                            await processSelectedImage(newItem)
+                        }
+                    }
 
                     Button(action: {
-                                            showCameraPicker = true
-                                        }) {
-                                            HStack(spacing: 12) {
-                                                Image(systemName: "camera")
-                                                    .font(.system(size: 18, weight: .semibold))
-                                                    .foregroundColor(Color(red: 0.10, green: 0.38, blue: 0.36))
+                        showCameraPicker = true
+                    }) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "camera")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundColor(Color(red: 0.10, green: 0.38, blue: 0.36))
 
-                                                Text("Take Photo")
-                                                    .font(.system(size: 16, weight: .bold))
-                                                    .foregroundColor(Color(red: 0.10, green: 0.38, blue: 0.36))
+                            Text("Take Photo")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundColor(Color(red: 0.10, green: 0.38, blue: 0.36))
 
-                                                Spacer()
+                            Spacer()
 
-                                                Image(systemName: "chevron.right")
-                                                    .font(.system(size: 14, weight: .bold))
-                                                    .foregroundColor(Color(red: 0.10, green: 0.38, blue: 0.36).opacity(0.8))
-                                            }
-                                            .padding(.vertical, 16)
-                                            .padding(.horizontal, 18)
-                                            .background(Color(red: 0.88, green: 0.95, blue: 0.97))
-                                            .cornerRadius(14)
-                                        }
-                                        .sheet(isPresented: $showCameraPicker) {
-                                            ImagePicker(image: $inputImage, sourceType: .camera) {
-                                                // After taking photo, navigate to scanning screen
-                                                navState.navigate(to: .scanningBill)
-                                            }
-                                        }
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundColor(Color(red: 0.10, green: 0.38, blue: 0.36).opacity(0.8))
+                        }
+                        .padding(.vertical, 16)
+                        .padding(.horizontal, 18)
+                        .background(Color(red: 0.88, green: 0.95, blue: 0.97))
+                        .cornerRadius(14)
+                    }
+                    .sheet(isPresented: $showCameraPicker) {
+                        ImagePicker(image: $inputImage, sourceType: .camera) {
+                            Task {
+                                await processSelectedImage(nil, imageOverride: inputImage)
+                            }
+                        }
+                    }
 
                     Text("DOCUMENT EXAMPLE")
                         .font(.system(size: 12, weight: .bold))
@@ -139,7 +145,13 @@ public struct SelectBillImageView: View {
                     .padding(.bottom, 24)
 
                     Button(action: {
-                        navState.navigate(to: .scanningBill)
+                        if let image = inputImage {
+                            Task {
+                                await processSelectedImage(nil, imageOverride: image)
+                            }
+                        } else {
+                            navState.navigate(to: .scanningBill)
+                        }
                     }) {
                         HStack(spacing: 12) {
                             Image(systemName: "doc.text.fill")
@@ -158,11 +170,60 @@ public struct SelectBillImageView: View {
                         .cornerRadius(14)
                         .shadow(color: Color.black.opacity(0.12), radius: 6, x: 0, y: 3)
                     }
+
+                    if !errorMessage.isEmpty {
+                        Text(errorMessage)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(.red)
+                            .padding(.top, 4)
+                    }
                 }
                 .padding(.horizontal, 24)
             }
         }
         .background(Color.white.ignoresSafeArea())
+        .navigationDestination(isPresented: .constant(extractedBillData != nil)) {
+            ReviewBillView(extractedBill: extractedBillData ?? .sample)
+        }
+    }
+
+    @MainActor
+    private func processSelectedImage(_ item: PhotosPickerItem?, imageOverride: UIImage? = nil) async {
+        isProcessingOCR = true
+        errorMessage = ""
+
+        do {
+            let image: UIImage
+            if let imageOverride {
+                image = imageOverride
+            } else {
+                guard let item else {
+                    isProcessingOCR = false
+                    return
+                }
+                guard let data = try await item.loadTransferable(type: Data.self),
+                      let loaded = UIImage(data: data) else {
+                    throw NSError(domain: "BillOCR", code: 2, userInfo: [NSLocalizedDescriptionKey: "Could not load the selected image."])
+                }
+                image = loaded
+            }
+
+            inputImage = image
+            let rawText = try await BillTextRecognitionService.recognizeText(from: image)
+            let parsed = ExtractedBillData.parse(from: rawText)
+            extractedBillData = parsed
+            isProcessingOCR = false
+
+            if parsed.rawText.isEmpty {
+                errorMessage = "No text found in the image. Please choose a clearer bill image."
+                return
+            }
+
+            navState.navigate(to: .reviewBill)
+        } catch {
+            isProcessingOCR = false
+            errorMessage = "Text extraction failed: \(error.localizedDescription)"
+        }
     }
 }
 
