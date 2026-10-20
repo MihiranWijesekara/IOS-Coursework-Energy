@@ -9,6 +9,7 @@ import SwiftUI
 
 public struct ApplianceDetailView: View {
     @EnvironmentObject var navState: AppNavigationState
+    @State private var isEditing = false
     
     private let usageMode: String = "All day"
     private let daysPerWeek: Int = 2
@@ -26,7 +27,7 @@ public struct ApplianceDetailView: View {
                 Spacer()
                 
                 Button(action: {
-                    navState.navigate(to: .addAppliance)
+                    isEditing = true
                 }) {
                     Text("Edit")
                         .font(.system(size: 16, weight: .medium))
@@ -110,7 +111,7 @@ public struct ApplianceDetailView: View {
                             Spacer()
                             
                             Button(action: {
-                                navState.navigate(to: .addAppliance)
+                                isEditing = true
                             }) {
                                 Text("Edit appliance")
                                     .font(.system(size: 14, weight: .medium))
@@ -167,6 +168,33 @@ public struct ApplianceDetailView: View {
                 }
                 .padding(.horizontal, 24)
             }
+        }
+        .background(Color.white.ignoresSafeArea())
+        .sheet(isPresented: $isEditing) {
+            editApplianceSheet
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+        }
+    }
+    
+    private var editApplianceSheet: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Spacer()
+                Button(action: { isEditing = false }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(EnergyLensTheme.textPrimary)
+                        .frame(width: 36, height: 36)
+                        .background(Color(red: 0.95, green: 0.96, blue: 0.97))
+                        .clipShape(Circle())
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 10)
+
+            AddApplianceView()
+                .environmentObject(navState)
         }
         .background(Color.white.ignoresSafeArea())
     }
