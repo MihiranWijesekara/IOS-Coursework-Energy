@@ -13,7 +13,7 @@ public enum AppScreen: String, CaseIterable, Identifiable {
     case createAccount = "2. Create Account"
     case signIn = "3. Sign In"
     case secureData = "4. Secure Data"
-    case createPasscode = "5. Passcode"
+    
     case home = "6. Home"
     case analysis = "7. Analysis"
     case billAnalysis = "8. Bill Analysis"
@@ -51,7 +51,6 @@ public enum AppScreen: String, CaseIterable, Identifiable {
         case .createAccount: return 2
         case .signIn: return 3
         case .secureData: return 4
-        case .createPasscode: return 5
         case .home: return 6
         case .analysis: return 7
         case .billAnalysis: return 8

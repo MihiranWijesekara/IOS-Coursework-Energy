@@ -67,18 +67,18 @@ public struct SecureDataView: View {
             VStack(spacing: 12) {
                 GradientButton(title: "Sign In with Face ID") {
                     authService.authenticateWithBiometrics { success in
-                        if success {
+//                        if success {
                             navState.isAuthenticated = true
                             navState.navigate(to: .home)
-                        } else {
-                            navState.navigate(to: .createPasscode)
-                        }
+//                        } else {
+//                            navState.navigate(to: .createPasscode)
+//                        }
                     }
                 }
 
-                OutlineButton(title: "Use Passcode") {
-                    navState.navigate(to: .createPasscode)
-                }
+//                OutlineButton(title: "Use Passcode") {
+//                    navState.navigate(to: .createPasscode)
+//                }
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 32)

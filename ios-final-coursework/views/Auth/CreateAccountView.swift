@@ -1,3 +1,10 @@
+//
+//  CreateAccountView.swift
+//  ios-final-coursework
+//
+//  Created by student5 on 2026-10-16.
+//
+
 import SwiftUI
 
 public struct CreateAccountView: View {
@@ -6,9 +13,70 @@ public struct CreateAccountView: View {
     @State private var password: String = "••••••••••••"
     @State private var confirmPassword: String = "••••••••••••"
     
-    let provinces = ["Western", "Central", "Southern", "North Western", "Northern", "Eastern", "Sabaragamuwa", "Uva", "North Central"]
-    let districts = ["Colombo", "Gampaha", "Kalutara", "Kandy", "Galle", "Matara"]
-    let towns = ["Colombo", "Dehiwala", "Moratuwa", "Sri Jayawardenepura Kotte", "Negombo"]
+    // Sri Lankan Province, District, and Town Hierarchy Data Structure
+    private let locationData: [String: [String: [String]]] = [
+        "Western": [
+            "Colombo": ["Colombo", "Dehiwala-Mount Lavinia", "Moratuwa", "Sri Jayawardenepura Kotte", "Kotte", "Kolonnawa", "Maharagama", "Kesbewa", "Ratmalana", "Homagama", "Kaduwela"],
+            "Gampaha": ["Gampaha", "Negombo", "Katunayake", "Ja-Ela", "Wattala", "Gampaha", "Minuwangoda", "Kadawatha", "Kiribathgoda"],
+            "Kalutara": ["Kalutara", "Panadura", "Horana", "Beruwala", "Aluthgama", "Matugama"]
+        ],
+        "Central": [
+            "Kandy": ["Kandy", "Gampola", "Nawalapitiya", "Katugastota", "Peradeniya", "Kundasale"],
+            "Matale": ["Matale", "Dambulla", "Sigiriya", "Galewela"],
+            "Nuwara Eliya": ["Nuwara Eliya", "Hatton", "Talawakele", "Maskeliya"]
+        ],
+        "Southern": [
+            "Galle": ["Galle", "Ambalangoda", "Hikkaduwa", "Elpitiya", "Baddegama"],
+            "Matara": ["Matara", "Weligama", "Akuressa", "Dickwella"],
+            "Hambantota": ["Hambantota", "Tangalle", "Tissamaharama", "Ambalantota"]
+        ],
+        "Northern": [
+            "Jaffna": ["Jaffna", "Chavakachcheri", "Point Pedro", "Nallur", "Valvettithurai"],
+            "Mannar": ["Mannar", "Pesalai", "Nanattan"],
+            "Vavuniya": ["Vavuniya", "Cheddikulam"],
+            "Mullaitivu": ["Mullaitivu", "Puthukkudiyiruppu"],
+            "Kilinochchi": ["Kilinochchi", "Paranthan"]
+        ],
+        "Eastern": [
+            "Trincomalee": ["Trincomalee", "Kinniya", "Kantale"],
+            "Batticaloa": ["Batticaloa", "Kattankudy", "Eravur", "Valaichchenai"],
+            "Ampara": ["Ampara", "Kalmunai", "Sammanthurai", "Akkaraipattu"]
+        ],
+        "North Western": [
+            "Kurunegala": ["Kurunegala", "Kuliyapitiya", "Pannala", "Nikaweratiya"],
+            "Puttalam": ["Puttalam", "Chilaw", "Wennappuwa", "Marawila"]
+        ],
+        "North Central": [
+            "Anuradhapura": ["Anuradhapura", "Kekirawa", "Medawachchiya", "Tambuttegama"],
+            "Polonnaruwa": ["Polonnaruwa", "Kaduruwela", "Hingurakgoda", "Medirigiriya"]
+        ],
+        "Uva": [
+            "Badulla": ["Badulla", "Bandarawela", "Haputale", "Welimada", "Mahiyanganaya"],
+            "Monaragala": ["Monaragala", "Wellawaya", "Bibile", "Kataragama"]
+        ],
+        "Sabaragamuwa": [
+            "Ratnapura": ["Ratnapura", "Embilipitiya", "Pelmadulla", "Balangoda"],
+            "Kegalle": ["Kegalle", "Mawanella", "Warakapola", "Rambukkana"]
+        ]
+    ]
+    
+    // Computed list of available provinces
+    private var provinces: [String] {
+        Array(locationData.keys).sorted()
+    }
+    
+    // Computed list of districts based on selected province
+    private var districts: [String] {
+        guard let provinceDistricts = locationData[navState.province] else { return [] }
+        return Array(provinceDistricts.keys).sorted()
+    }
+    
+    // Computed list of towns based on selected province and district
+    private var towns: [String] {
+        guard let provinceDistricts = locationData[navState.province],
+              let districtTowns = provinceDistricts[navState.district] else { return [] }
+        return districtTowns.sorted()
+    }
     
     public init() {}
     
@@ -48,9 +116,24 @@ public struct CreateAccountView: View {
                 sectionHeader("Location")
                 
                 VStack(spacing: 16) {
-                    dropdownField(label: "Province", selection: $navState.province, options: provinces)
-                    dropdownField(label: "District", selection: $navState.district, options: districts)
-                    dropdownField(label: "Town", selection: $navState.town, options: towns)
+                    dropdownField(label: "Province", selection: $navState.province, options: provinces) { newProvince in
+                        // Auto-select the first available district and town when province changes
+                        if let firstDistrict = locationData[newProvince]?.keys.sorted().first {
+                            navState.district = firstDistrict
+                            if let firstTown = locationData[newProvince]?[firstDistrict]?.sorted().first {
+                                navState.town = firstTown
+                            }
+                        }
+                    }
+                    
+                    dropdownField(label: "District", selection: $navState.district, options: districts) { newDistrict in
+                        // Auto-select the first available town when district changes
+                        if let firstTown = locationData[navState.province]?[newDistrict]?.sorted().first {
+                            navState.town = firstTown
+                        }
+                    }
+                    
+                    dropdownField(label: "Town", selection: $navState.town, options: towns) { _ in }
                 }
                 .padding(.bottom, 24)
                 
@@ -105,7 +188,6 @@ public struct CreateAccountView: View {
             .padding(.bottom, 8)
     }
     
-    // Universal overload (no keyboardType parameter)
     @ViewBuilder
     private func labeledInputField(label: String, text: Binding<String>) -> some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -124,23 +206,24 @@ public struct CreateAccountView: View {
     }
 
     @ViewBuilder
-    private func dropdownField(label: String, selection: Binding<String>, options: [String]) -> some View {
+    private func dropdownField(label: String, selection: Binding<String>, options: [String], onChange: @escaping (String) -> Void) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(label)
                 .font(.system(size: 13, weight: .regular))
                 .foregroundColor(EnergyLensTheme.textSecondary)
-            
+             
             Menu {
                 ForEach(options, id: \.self) { option in
                     Button(option) {
                         selection.wrappedValue = option
+                        onChange(option)
                     }
                 }
             } label: {
                 HStack {
-                    Text(selection.wrappedValue)
+                    Text(selection.wrappedValue.isEmpty ? "Select \(label)" : selection.wrappedValue)
                         .font(.system(size: 16, weight: .regular))
-                        .foregroundColor(EnergyLensTheme.textPrimary)
+                        .foregroundColor(selection.wrappedValue.isEmpty ? EnergyLensTheme.textSecondary : EnergyLensTheme.textPrimary)
                     Spacer()
                     Image(systemName: "chevron.down")
                         .font(.system(size: 13, weight: .medium))
@@ -148,7 +231,7 @@ public struct CreateAccountView: View {
                 }
                 .padding(.bottom, 4)
             }
-            
+             
             Divider()
                 .background(EnergyLensTheme.fieldBorder)
         }
@@ -160,15 +243,14 @@ public struct CreateAccountView: View {
             Text(label)
                 .font(.system(size: 13, weight: .regular))
                 .foregroundColor(EnergyLensTheme.textSecondary)
-            
+             
             SecureField(label, text: text)
                 .font(.system(size: 16, weight: .regular))
                 .foregroundColor(EnergyLensTheme.textPrimary)
                 .padding(.bottom, 4)
-            
+             
             Divider()
                 .background(EnergyLensTheme.fieldBorder)
         }
     }
 }
-

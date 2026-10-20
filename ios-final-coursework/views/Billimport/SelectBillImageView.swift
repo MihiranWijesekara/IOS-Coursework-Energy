@@ -11,7 +11,8 @@ import PhotosUI
 public struct SelectBillImageView: View {
     @EnvironmentObject var navState: AppNavigationState
     @State private var selectedPhotoItem: PhotosPickerItem? = nil
-
+    @State private var showCameraPicker = false
+    @State private var inputImage: UIImage? = nil
     public init() {}
 
     public var body: some View {
@@ -36,54 +37,68 @@ public struct SelectBillImageView: View {
                     }
                     .padding(.bottom, 4)
 
+                    PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
+                                            HStack(spacing: 12) {
+                                                Image(systemName: "photo.on.rectangle")
+                                                    .font(.system(size: 18, weight: .semibold))
+                                                    .foregroundColor(.white)
+
+                                                Text("Choose from Photos")
+                                                    .font(.system(size: 16, weight: .bold))
+                                                    .foregroundColor(.white)
+
+                                                Spacer()
+
+                                                Image(systemName: "chevron.right")
+                                                    .font(.system(size: 14, weight: .bold))
+                                                    .foregroundColor(.white.opacity(0.85))
+                                            }
+                                            .padding(.vertical, 16)
+                                            .padding(.horizontal, 18)
+                                            .background(EnergyLensTheme.buttonGradient)
+                                            .cornerRadius(14)
+                                            .shadow(color: Color.black.opacity(0.12), radius: 6, x: 0, y: 3)
+                                        }
+                                        .onChange(of: selectedPhotoItem) { newItem in
+                                            Task {
+                                                if let data = try? await newItem?.loadTransferable(type: Data.self),
+                                                   let uiImage = UIImage(data: data) {
+                                                    inputImage = uiImage
+                                                    // Navigate to scanning/review screen after selection
+                                                    navState.navigate(to: .scanningBill)
+                                                }
+                                            }
+                                        }
+
                     Button(action: {
-                        navState.navigate(to: .scanningBill)
-                    }) {
-                        HStack(spacing: 12) {
-                            Image(systemName: "photo.on.rectangle")
-                                .font(.system(size: 18, weight: .semibold))
-                                .foregroundColor(.white)
+                                            showCameraPicker = true
+                                        }) {
+                                            HStack(spacing: 12) {
+                                                Image(systemName: "camera")
+                                                    .font(.system(size: 18, weight: .semibold))
+                                                    .foregroundColor(Color(red: 0.10, green: 0.38, blue: 0.36))
 
-                            Text("Choose from Photos")
-                                .font(.system(size: 16, weight: .bold))
-                                .foregroundColor(.white)
+                                                Text("Take Photo")
+                                                    .font(.system(size: 16, weight: .bold))
+                                                    .foregroundColor(Color(red: 0.10, green: 0.38, blue: 0.36))
 
-                            Spacer()
+                                                Spacer()
 
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 14, weight: .bold))
-                                .foregroundColor(.white.opacity(0.85))
-                        }
-                        .padding(.vertical, 16)
-                        .padding(.horizontal, 18)
-                        .background(EnergyLensTheme.buttonGradient)
-                        .cornerRadius(14)
-                        .shadow(color: Color.black.opacity(0.12), radius: 6, x: 0, y: 3)
-                    }
-
-                    Button(action: {
-                        navState.navigate(to: .scanningBill)
-                    }) {
-                        HStack(spacing: 12) {
-                            Image(systemName: "camera")
-                                .font(.system(size: 18, weight: .semibold))
-                                .foregroundColor(Color(red: 0.10, green: 0.38, blue: 0.36))
-
-                            Text("Take Photo")
-                                .font(.system(size: 16, weight: .bold))
-                                .foregroundColor(Color(red: 0.10, green: 0.38, blue: 0.36))
-
-                            Spacer()
-
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 14, weight: .bold))
-                                .foregroundColor(Color(red: 0.10, green: 0.38, blue: 0.36).opacity(0.8))
-                        }
-                        .padding(.vertical, 16)
-                        .padding(.horizontal, 18)
-                        .background(Color(red: 0.88, green: 0.95, blue: 0.97))
-                        .cornerRadius(14)
-                    }
+                                                Image(systemName: "chevron.right")
+                                                    .font(.system(size: 14, weight: .bold))
+                                                    .foregroundColor(Color(red: 0.10, green: 0.38, blue: 0.36).opacity(0.8))
+                                            }
+                                            .padding(.vertical, 16)
+                                            .padding(.horizontal, 18)
+                                            .background(Color(red: 0.88, green: 0.95, blue: 0.97))
+                                            .cornerRadius(14)
+                                        }
+                                        .sheet(isPresented: $showCameraPicker) {
+                                            ImagePicker(image: $inputImage, sourceType: .camera) {
+                                                // After taking photo, navigate to scanning screen
+                                                navState.navigate(to: .scanningBill)
+                                            }
+                                        }
 
                     Text("DOCUMENT EXAMPLE")
                         .font(.system(size: 12, weight: .bold))
@@ -148,5 +163,45 @@ public struct SelectBillImageView: View {
             }
         }
         .background(Color.white.ignoresSafeArea())
+    }
+}
+
+struct ImagePicker: UIViewControllerRepresentable {
+    @Binding var image: UIImage?
+    var sourceType: UIImagePickerController.SourceType = .camera
+    var onCompletion: () -> Void
+    @Environment(\.presentationMode) var presentationMode
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = UIImagePickerController.isSourceTypeAvailable(.camera) ? sourceType : .photoLibrary
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let parent: ImagePicker
+
+        init(_ parent: ImagePicker) {
+            self.parent = parent
+        }
+
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
+            if let uiImage = info[.originalImage] as? UIImage {
+                parent.image = uiImage
+                parent.onCompletion()
+            }
+            parent.presentationMode.wrappedValue.dismiss()
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController, ) {
+            parent.presentationMode.wrappedValue.dismiss()
+        }
     }
 }
