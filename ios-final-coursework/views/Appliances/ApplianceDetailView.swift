@@ -10,6 +10,9 @@ import SwiftUI
 public struct ApplianceDetailView: View {
     @EnvironmentObject var navState: AppNavigationState
     
+    private let usageMode: String = "All day"
+    private let daysPerWeek: Int = 2
+    
     public init() {}
     
     public var body: some View {
@@ -123,7 +126,11 @@ public struct ApplianceDetailView: View {
                             Divider().background(EnergyLensTheme.fieldBorder)
                             profileRow(label: "Quantity", value: "1 unit")
                             Divider().background(EnergyLensTheme.fieldBorder)
-                            profileRow(label: "Usage pattern", value: "Evening")
+                            profileRow(label: "Usage mode", value: usageMode)
+                            if usageMode == "Weekly" {
+                                Divider().background(EnergyLensTheme.fieldBorder)
+                                profileRow(label: "Days per week", value: "\(daysPerWeek) days")
+                            }
                         }
                         .padding(18)
                         .background(Color.white)

@@ -13,12 +13,14 @@ public struct AddApplianceView: View {
     @State private var applianceName: String = "Air Conditioner"
     @State private var category: String = "Cooling"
     @State private var powerRating: String = "1,200 W"
-    @State private var hoursPerDay: String = "6 hours"
+    @State private var hoursPerDay: String = "6"
     @State private var quantity: Int = 1
-    @State private var usagePattern: String = "Evening"
+    @State private var usageMode: String = "All day"
+    @State private var daysPerWeek: Int = 1
     
     let categories = ["Cooling", "Refrigeration", "Ventilation", "Entertainment", "Cleaning", "Lighting", "Cooking"]
-    let patterns = ["Morning", "Afternoon", "Evening", "Night", "All Day"]
+    let usageModes = ["All day", "Weekly"]
+    let weeklyDays = Array(1...7)
     
     public init() {}
     
@@ -110,15 +112,69 @@ public struct AddApplianceView: View {
                         Divider()
                             .background(EnergyLensTheme.fieldBorder)
                         
-                        // Hours per day
-                        VStack(alignment: .leading, spacing: 3) {
+                        // Hours per day / usage mode
+                        VStack(alignment: .leading, spacing: 8) {
                             Text("Hours per day")
                                 .font(.system(size: 13, weight: .regular))
                                 .foregroundColor(EnergyLensTheme.textSecondary)
-                            
-                            TextField("Hours per day", text: $hoursPerDay)
-                                .font(.system(size: 16, weight: .regular))
-                                .foregroundColor(EnergyLensTheme.textPrimary)
+
+                            Menu {
+                                ForEach(usageModes, id: \.self) { mode in
+                                    Button(mode) { usageMode = mode }
+                                }
+                            } label: {
+                                HStack {
+                                    Text(usageMode)
+                                        .font(.system(size: 15, weight: .medium))
+                                        .foregroundColor(Color(red: 0.10, green: 0.38, blue: 0.48))
+                                    Spacer()
+                                    Image(systemName: "chevron.down")
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundColor(Color(red: 0.10, green: 0.38, blue: 0.48))
+                                }
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 10)
+                                .background(Color(red: 0.90, green: 0.96, blue: 0.98))
+                                .cornerRadius(10)
+                            }
+
+                            if usageMode == "Weekly" {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text("Days per week")
+                                        .font(.system(size: 13, weight: .regular))
+                                        .foregroundColor(EnergyLensTheme.textSecondary)
+
+                                    Menu {
+                                        ForEach(weeklyDays, id: \.self) { day in
+                                            Button("\(day)") { daysPerWeek = day }
+                                        }
+                                    } label: {
+                                        HStack {
+                                            Text("\(daysPerWeek)")
+                                                .font(.system(size: 16, weight: .regular))
+                                                .foregroundColor(EnergyLensTheme.textPrimary)
+                                            Spacer()
+                                            Image(systemName: "chevron.down")
+                                                .font(.system(size: 12, weight: .semibold))
+                                                .foregroundColor(EnergyLensTheme.textSecondary)
+                                        }
+                                        .padding(.bottom, 4)
+                                    }
+
+                                    Divider()
+                                        .background(EnergyLensTheme.fieldBorder)
+                                }
+                            }
+
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("Hours per day")
+                                    .font(.system(size: 13, weight: .regular))
+                                    .foregroundColor(EnergyLensTheme.textSecondary)
+
+                                TextField("Hours per day", text: $hoursPerDay)
+                                    .font(.system(size: 16, weight: .regular))
+                                    .foregroundColor(EnergyLensTheme.textPrimary)
+                            }
                         }
                     }
                     .padding(18)
@@ -129,7 +185,7 @@ public struct AddApplianceView: View {
                             .stroke(EnergyLensTheme.borderSubtle, lineWidth: 1)
                     )
                     
-                    // Form Card 2: Quantity & Usage pattern
+                    // Form Card 2: Quantity
                     VStack(alignment: .leading, spacing: 14) {
                         // Quantity with Stepper
                         HStack {
@@ -165,32 +221,6 @@ public struct AddApplianceView: View {
                                         .frame(width: 32, height: 32)
                                         .background(EnergyLensTheme.accentGreen)
                                         .cornerRadius(8)
-                                }
-                            }
-                        }
-                        
-                        Divider()
-                            .background(EnergyLensTheme.fieldBorder)
-                        
-                        // Usage pattern
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("Usage pattern · Optional")
-                                .font(.system(size: 13, weight: .regular))
-                                .foregroundColor(EnergyLensTheme.textSecondary)
-                            
-                            Menu {
-                                ForEach(patterns, id: \.self) { pat in
-                                    Button(pat) { usagePattern = pat }
-                                }
-                            } label: {
-                                HStack {
-                                    Text(usagePattern)
-                                        .font(.system(size: 16, weight: .regular))
-                                        .foregroundColor(EnergyLensTheme.textPrimary)
-                                    Spacer()
-                                    Image(systemName: "chevron.down")
-                                        .font(.system(size: 12, weight: .semibold))
-                                        .foregroundColor(EnergyLensTheme.textSecondary)
                                 }
                             }
                         }
