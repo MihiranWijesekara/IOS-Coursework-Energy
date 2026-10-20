@@ -9,9 +9,12 @@ import SwiftUI
 
 public struct CreateAccountView: View {
     @EnvironmentObject var navState: AppNavigationState
-    
-    @State private var password: String = "••••••••••••"
-    @State private var confirmPassword: String = "••••••••••••"
+    @Environment(\.modelContext) private var modelContext
+
+    @State private var password: String = ""
+    @State private var confirmPassword: String = ""
+    @State private var showAlert: Bool = false
+    @State private var alertMessage: String = ""
     
     // Sri Lankan Province, District, and Town Hierarchy Data Structure
     private let locationData: [String: [String: [String]]] = [
@@ -151,9 +154,60 @@ public struct CreateAccountView: View {
                     .foregroundColor(EnergyLensTheme.textSecondary)
                     .padding(.bottom, 28)
                 
-                // Submit Button
                 GradientButton(title: "Create Account") {
-                    navState.navigate(to: .secureData)
+                    let trimmedEmail = navState.email.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let trimmedFirst = navState.firstName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let trimmedLast = navState.lastName.trimmingCharacters(in: .whitespacesAndNewlines)
+
+                    if trimmedFirst.isEmpty || trimmedLast.isEmpty || trimmedEmail.isEmpty {
+                        alertMessage = "Please fill in your first name, last name, and email."
+                        showAlert = true
+                        return
+                    }
+
+                    if password.count < 8 {
+                        alertMessage = "Password must be at least 8 characters long."
+                        showAlert = true
+                        return
+                    }
+
+                    if password != confirmPassword {
+                        alertMessage = "Passwords do not match. Please re-enter them."
+                        showAlert = true
+                        return
+                    }
+
+                    if SwiftDataUserService.shared.userExists(context: modelContext, email: trimmedEmail) {
+                        alertMessage = "An account with this email already exists."
+                        showAlert = true
+                        return
+                    }
+
+                    do {
+                        let savedUser = try SwiftDataUserService.shared.createUser(
+                            context: modelContext,
+                            firstName: trimmedFirst,
+                            lastName: trimmedLast,
+                            email: trimmedEmail,
+                            phone: navState.phone.isEmpty ? nil : navState.phone,
+                            province: navState.province.isEmpty ? nil : navState.province,
+                            district: navState.district.isEmpty ? nil : navState.district,
+                            town: navState.town.isEmpty ? nil : navState.town,
+                            password: password
+                        )
+
+                        navState.firstName = savedUser.firstName
+                        navState.lastName = savedUser.lastName
+                        navState.email = savedUser.email
+                        navState.phone = savedUser.phone ?? ""
+                        navState.province = savedUser.province ?? ""
+                        navState.district = savedUser.district ?? ""
+                        navState.town = savedUser.town ?? ""
+                        navState.navigate(to: .secureData)
+                    } catch {
+                        alertMessage = "Unable to save the account. Please try again."
+                        showAlert = true
+                    }
                 }
                 .padding(.bottom, 16)
                 
@@ -178,6 +232,11 @@ public struct CreateAccountView: View {
             .padding(.horizontal, 24)
         }
         .background(Color.white.ignoresSafeArea())
+        .alert("Create account", isPresented: $showAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(alertMessage)
+        }
     }
     
     @ViewBuilder

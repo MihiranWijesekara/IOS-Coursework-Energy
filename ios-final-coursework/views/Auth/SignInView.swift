@@ -2,8 +2,11 @@ import SwiftUI
 
 public struct SignInView: View {
     @EnvironmentObject var navState: AppNavigationState
+    @Environment(\.modelContext) private var modelContext
     @State private var email: String = "achintha@example.com"
-    @State private var password: String = "••••••••••••"
+    @State private var password: String = ""
+    @State private var showAlert: Bool = false
+    @State private var alertMessage: String = ""
     
     public init() {}
     
@@ -93,8 +96,27 @@ public struct SignInView: View {
             // Action Buttons
             VStack(spacing: 12) {
                 GradientButton(title: "Sign In") {
-                    navState.isAuthenticated = true
-                    navState.navigate(to: .home)
+                    let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if trimmedEmail.isEmpty || password.isEmpty {
+                        alertMessage = "Please enter your email and password."
+                        showAlert = true
+                        return
+                    }
+
+                    if let user = SwiftDataUserService.shared.login(context: modelContext, email: trimmedEmail, password: password) {
+                        navState.firstName = user.firstName
+                        navState.lastName = user.lastName
+                        navState.email = user.email
+                        navState.phone = user.phone ?? ""
+                        navState.province = user.province ?? navState.province
+                        navState.district = user.district ?? navState.district
+                        navState.town = user.town ?? navState.town
+                        navState.isAuthenticated = true
+                        navState.navigate(to: .home)
+                    } else {
+                        alertMessage = "Invalid email or password. Please try again."
+                        showAlert = true
+                    }
                 }
 
                 OutlineButton(title: "Sign In with Face ID") {
@@ -105,6 +127,11 @@ public struct SignInView: View {
         }
         .padding(.horizontal, 24)
         .background(Color.white.ignoresSafeArea())
+        .alert("Sign in", isPresented: $showAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(alertMessage)
+        }
     }
 }
 
