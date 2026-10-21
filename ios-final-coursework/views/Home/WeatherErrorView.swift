@@ -6,9 +6,11 @@
 //
 
 import SwiftUI
+import SwiftData
 
 public struct WeatherErrorView: View {
     @EnvironmentObject var navState: AppNavigationState
+    @Query(sort: \WeatherData.date, order: .reverse) private var cachedWeatherRecords: [WeatherData]
     
     public init() {}
     
@@ -26,7 +28,7 @@ public struct WeatherErrorView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     // Headings
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Colombo")
+                        Text(navState.town.isEmpty ? "Colombo" : navState.town)
                             .font(.system(size: 30, weight: .bold))
                             .foregroundColor(EnergyLensTheme.textPrimary)
                         
@@ -71,16 +73,22 @@ public struct WeatherErrorView: View {
                             .tracking(0.6)
                         
                         HStack(alignment: .firstTextBaseline, spacing: 4) {
-                            Text("33°")
-                                .font(.system(size: 52, weight: .bold))
-                                .foregroundColor(.white)
+                            if let cached = cachedWeatherRecords.first, let temp = cached.highTemp {
+                                Text("\(Int(round(temp)))°")
+                                    .font(.system(size: 52, weight: .bold))
+                                    .foregroundColor(.white)
+                            } else {
+                                Text("33°")
+                                    .font(.system(size: 52, weight: .bold))
+                                    .foregroundColor(.white)
+                            }
                             
                             Text("C")
                                 .font(.system(size: 26, weight: .regular))
                                 .foregroundColor(.white)
                         }
                         
-                        Text("Last-known conditions · Mostly sunny")
+                        Text("Last-known conditions · \(cachedWeatherRecords.first?.condition ?? "Mostly sunny")")
                             .font(.system(size: 14, weight: .regular))
                             .foregroundColor(.white.opacity(0.85))
                     }

@@ -10,6 +10,21 @@ import SwiftUI
 public struct WeatherDetailsView: View {
     @EnvironmentObject var navState: AppNavigationState
     
+    // Live Weather State
+    @State private var currentTemp: Double = 33.0
+    @State private var tomorrowTemp: Double = 33.0
+    @State private var highTemp: Double = 34.0
+    @State private var lowTemp: Double = 27.0
+    @State private var conditionText: String = "Mostly sunny"
+    @State private var weatherIcon: String = "sun.max.fill"
+    @State private var humidity: Int = 75
+    @State private var rainProb: Int = 10
+    @State private var windSpeed: Double = 12.0
+    @State private var coolingDemandTitle: String = "High cooling demand"
+    @State private var coolingDemandDesc: String = "Higher temperatures may increase AC and fan usage."
+    @State private var coolingRecommendation: String = "Use AC at 24–26°C or reduce usage by 1 hour."
+    @State private var isLoading: Bool = false
+    
     public init() {}
     
     public var body: some View {
@@ -26,7 +41,7 @@ public struct WeatherDetailsView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     // Headings
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Colombo")
+                        Text(navState.town.isEmpty ? "Colombo" : navState.town)
                             .font(.system(size: 30, weight: .bold))
                             .foregroundColor(EnergyLensTheme.textPrimary)
                         
@@ -43,7 +58,7 @@ public struct WeatherDetailsView: View {
                                 .foregroundColor(.white.opacity(0.85))
                             
                             HStack(alignment: .firstTextBaseline, spacing: 4) {
-                                Text("33°")
+                                Text("\(Int(round(currentTemp)))°")
                                     .font(.system(size: 52, weight: .bold))
                                     .foregroundColor(.white)
                                 
@@ -55,7 +70,7 @@ public struct WeatherDetailsView: View {
                         
                         Spacer()
                         
-                        Image(systemName: "sun.max.fill")
+                        Image(systemName: weatherIcon)
                             .font(.system(size: 44))
                             .foregroundColor(Color(red: 0.98, green: 0.78, blue: 0.15))
                     }
@@ -65,7 +80,7 @@ public struct WeatherDetailsView: View {
                     .shadow(color: Color.black.opacity(0.1), radius: 8, x: 0, y: 4)
                     
                     // Condition Subtitle
-                    Text("Mostly sunny")
+                    Text(conditionText)
                         .font(.system(size: 17, weight: .bold))
                         .foregroundColor(EnergyLensTheme.textPrimary)
                     
@@ -76,14 +91,14 @@ public struct WeatherDetailsView: View {
                                 .font(.system(size: 16, weight: .bold))
                                 .foregroundColor(EnergyLensTheme.textPrimary)
                             
-                            Text("High 34°C · Low 27°C (sample range)")
+                            Text("High \(Int(round(highTemp)))°C · Low \(Int(round(lowTemp)))°C")
                                 .font(.system(size: 13, weight: .regular))
                                 .foregroundColor(EnergyLensTheme.textSecondary)
                         }
                         
                         Spacer()
                         
-                        Text("33°C")
+                        Text("\(Int(round(tomorrowTemp)))°C")
                             .font(.system(size: 16, weight: .bold))
                             .foregroundColor(EnergyLensTheme.textPrimary)
                     }
@@ -97,11 +112,11 @@ public struct WeatherDetailsView: View {
                     
                     // 3 Stat Columns Card
                     HStack {
-                        statColumn(label: "Humidity", value: "75%")
+                        statColumn(label: "Humidity", value: "\(humidity)%")
                         Spacer()
-                        statColumn(label: "Wind", value: "12 km/h")
+                        statColumn(label: "Wind", value: "\(Int(round(windSpeed))) km/h")
                         Spacer()
-                        statColumn(label: "Rain", value: "10%")
+                        statColumn(label: "Rain", value: "\(rainProb)%")
                     }
                     .padding(.vertical, 16)
                     .padding(.horizontal, 24)
@@ -167,6 +182,51 @@ public struct WeatherDetailsView: View {
             }
         }
         .background(Color.white.ignoresSafeArea())
+        .task {
+            await loadWeatherDetails()
+        }
+    }
+    
+    private func loadWeatherDetails() async {
+        let town = navState.town.isEmpty ? "Colombo" : navState.town
+        isLoading = true
+        
+        do {
+            let coords = try await WeatherService.shared.fetchCoordinates(for: town)
+            let forecast = try await WeatherService.shared.fetchWeather(latitude: coords.lat, longitude: coords.lon)
+            
+            if let current = forecast.current {
+                withAnimation {
+                    self.currentTemp = current.temperature2m
+                    let mapped = WeatherService.mapWeatherCode(current.weatherCode, temperature: current.temperature2m)
+                    self.conditionText = mapped.condition
+                    self.weatherIcon = mapped.icon
+                    
+                    if let relHum = current.relativeHumidity2m {
+                        self.humidity = Int(relHum)
+                    }
+                    if let wind = current.windSpeed10m {
+                        self.windSpeed = wind
+                    }
+                }
+            }
+            
+            if let daily = forecast.daily {
+                withAnimation {
+                    if daily.temperature2mMax.count > 1 {
+                        self.highTemp = daily.temperature2mMax[1]
+                        self.lowTemp = daily.temperature2mMin[1]
+                        self.tomorrowTemp = daily.temperature2mMax[1]
+                    }
+                    if let precipArray = daily.precipitationProbabilityMax, precipArray.count > 1, let p = precipArray[1] as Int? {
+                        self.rainProb = p
+                    }
+                }
+            }
+        } catch {
+            print("Failed loading weather details: \(error.localizedDescription)")
+        }
+        isLoading = false
     }
     
     @ViewBuilder

@@ -280,6 +280,15 @@ public struct ReviewBillView: View {
         .sheet(isPresented: $isShowingEditModal) {
             editBillModalView
         }
+        .onAppear {
+            let data = navState.extractedBillData
+            billingPeriod = data.billingPeriod
+            previousReading = data.previousReading
+            currentReading = data.currentReading
+            consumption = data.consumptionKwh
+            billAmount = data.billAmount
+            rawText = data.rawText
+        }
     }
 
     private var editBillModalView: some View {
@@ -433,17 +442,29 @@ public struct ReviewBillView: View {
     }
 
     private func parseDateRange(from text: String) -> (Date, Date)? {
-        let pattern = #"(\d{1,2})\s+([A-Za-z]{3,9})\s*(?:-|–|to)\s*(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{4})"#
-        guard let regex = try? NSRegularExpression(pattern: pattern),
+        let pattern = #"(\d{1,2}\s+[A-Za-z]{3,9})\s*(?:-|–|to)\s*(\d{1,2}\s+[A-Za-z]{3,9})\s+(\d{4})"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
               let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
-              let range = Range(match.range, in: text) else {
+              match.numberOfRanges == 4,
+              let startDayMonthRange = Range(match.range(at: 1), in: text),
+              let endDayMonthRange = Range(match.range(at: 2), in: text),
+              let yearRange = Range(match.range(at: 3), in: text) else {
             return nil
         }
 
-        let matched = String(text[range])
-        let components = matched.split(whereSeparator: { !$0.isLetter && !$0.isNumber && $0 != "-" && $0 != "–" && $0 != " " }).map(String.init)
-        if components.count >= 4 {
-            return (Date(), Date())
+        let year = String(text[yearRange])
+        let startString = "\(text[startDayMonthRange]) \(year)"
+        let endString = "\(text[endDayMonthRange]) \(year)"
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+
+        for format in ["dd MMM yyyy", "d MMM yyyy", "dd MMMM yyyy", "d MMMM yyyy"] {
+            formatter.dateFormat = format
+            if let startDate = formatter.date(from: startString),
+               let endDate = formatter.date(from: endString) {
+                return (startDate, endDate)
+            }
         }
 
         return nil

@@ -6,9 +6,19 @@
 //
 
 import SwiftUI
+import SwiftData
 
 public struct HomeDashboardView: View {
     @EnvironmentObject var navState: AppNavigationState
+    @Environment(\.modelContext) private var modelContext
+    
+    // Live Weather State
+    @State private var weatherTemp: Double? = 33.0
+    @State private var weatherCondition: String = "Sunny"
+    @State private var weatherIcon: String = "sun.max"
+    @State private var weatherAdvice: String = "High cooling demand"
+    @State private var isLoadingWeather: Bool = false
+    @State private var weatherFetchFailed: Bool = false
     
     public init() {}
     
@@ -139,24 +149,35 @@ public struct HomeDashboardView: View {
                         )
                     }
                     
-                    // Card 3: Tomorrow · 33°C
+                    // Card 3: Live Weather Card
                     Button(action: {
-                        navState.navigate(to: .weatherDetails)
+                        if weatherFetchFailed {
+                            navState.navigate(to: .weatherError)
+                        } else {
+                            navState.navigate(to: .weatherDetails)
+                        }
                     }) {
                         HStack(spacing: 14) {
-                            Image(systemName: "sun.max")
+                            Image(systemName: weatherIcon)
                                 .font(.system(size: 20))
                                 .foregroundColor(EnergyLensTheme.textSecondary)
                                 .frame(width: 24)
                             
                             VStack(alignment: .leading, spacing: 3) {
-                                Text("Tomorrow · 33°C")
-                                    .font(.system(size: 15, weight: .bold))
-                                    .foregroundColor(EnergyLensTheme.textPrimary)
+                                if let temp = weatherTemp {
+                                    Text("\(weatherCondition) · \(Int(round(temp)))°C")
+                                        .font(.system(size: 15, weight: .bold))
+                                        .foregroundColor(EnergyLensTheme.textPrimary)
+                                } else {
+                                    Text(weatherCondition)
+                                        .font(.system(size: 15, weight: .bold))
+                                        .foregroundColor(EnergyLensTheme.textPrimary)
+                                }
                                 
-                                Text("Colombo · High cooling demand")
+                                Text("\(navState.town.isEmpty ? "Colombo" : navState.town) · \(weatherAdvice)")
                                     .font(.system(size: 12, weight: .regular))
                                     .foregroundColor(EnergyLensTheme.textSecondary)
+                                    .lineLimit(1)
                             }
                             
                             Spacer()
@@ -270,5 +291,46 @@ public struct HomeDashboardView: View {
             }
         }
         .background(EnergyLensTheme.screenBackground.ignoresSafeArea())
+        .task {
+            await loadLiveWeather()
+        }
+    }
+    
+    // MARK: - Live Weather Integration & SwiftData Caching
+    private func loadLiveWeather() async {
+        let town = navState.town.isEmpty ? "Colombo" : navState.town
+        isLoadingWeather = true
+        weatherFetchFailed = false
+        
+        do {
+            let coords = try await WeatherService.shared.fetchCoordinates(for: town)
+            let forecast = try await WeatherService.shared.fetchWeather(latitude: coords.lat, longitude: coords.lon)
+            
+            if let current = forecast.current {
+                withAnimation {
+                    self.weatherTemp = current.temperature2m
+                    let mapped = WeatherService.mapWeatherCode(current.weatherCode, temperature: current.temperature2m)
+                    self.weatherCondition = mapped.condition
+                    self.weatherIcon = mapped.icon
+                    self.weatherAdvice = mapped.advice
+                }
+                
+                // Save/update WeatherData record in SwiftData
+                let weatherRecord = WeatherData(
+                    date: Date(),
+                    highTemp: current.temperature2m,
+                    lowTemp: current.temperature2m - 4.0,
+                    condition: self.weatherCondition,
+                    precipProb: Double(forecast.daily?.precipitationProbabilityMax?.first ?? 10)
+                )
+                modelContext.insert(weatherRecord)
+                try? modelContext.save()
+            }
+        } catch {
+            print("Weather fetch error: \(error.localizedDescription)")
+            self.weatherFetchFailed = true
+        }
+        
+        isLoadingWeather = false
     }
 }

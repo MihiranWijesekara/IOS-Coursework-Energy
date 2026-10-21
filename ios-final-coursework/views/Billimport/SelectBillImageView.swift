@@ -182,9 +182,6 @@ public struct SelectBillImageView: View {
             }
         }
         .background(Color.white.ignoresSafeArea())
-        .navigationDestination(isPresented: .constant(extractedBillData != nil)) {
-            ReviewBillView(extractedBill: extractedBillData ?? .sample)
-        }
     }
 
     @MainActor
@@ -209,20 +206,28 @@ public struct SelectBillImageView: View {
             }
 
             inputImage = image
+            navState.selectedBillImage = image
+
+            // 1. Run Vision OCR
             let rawText = try await BillTextRecognitionService.recognizeText(from: image)
+
+            // 2. Parse into ExtractedBillData
             let parsed = ExtractedBillData.parse(from: rawText)
             extractedBillData = parsed
             isProcessingOCR = false
 
+            // 3. Check for unreadable/blank image
             if parsed.rawText.isEmpty {
-                errorMessage = "No text found in the image. Please choose a clearer bill image."
+                navState.navigate(to: .billScanError)
                 return
             }
 
+            // 4. Save to shared navState and navigate to Review Bill
+            navState.extractedBillData = parsed
             navState.navigate(to: .reviewBill)
         } catch {
             isProcessingOCR = false
-            errorMessage = "Text extraction failed: \(error.localizedDescription)"
+            navState.navigate(to: .billScanError)
         }
     }
 }

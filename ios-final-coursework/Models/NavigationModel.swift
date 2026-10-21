@@ -105,12 +105,15 @@ public final class AppNavigationState: ObservableObject {
     
     @Published public var enteredPasscode: String = ""
     @Published public var isAuthenticated: Bool = false
-//    
     // Bill Data and Simulator State
     @Published public var selectedAppliance: String = "Air Conditioner"
     @Published public var selectedApplianceId: UUID? = nil
     @Published public var simulationHours: Double = 4.0
     @Published public var currentAcHours: Double = 6.0
+
+    // Extracted OCR Bill State
+    @Published public var selectedBillImage: UIImage? = nil
+    @Published public var extractedBillData: ExtractedBillData = .sample
 
     public init() {}
     
