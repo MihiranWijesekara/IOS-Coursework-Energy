@@ -6,9 +6,11 @@
 //
 
 import SwiftUI
+import SwiftData
 
 public struct BillHistoryView: View {
     @EnvironmentObject var navState: AppNavigationState
+    @Query(sort: \ElectricityBill.periodEnd, order: .reverse) private var savedBills: [ElectricityBill]
     @State private var selectedPeriod = 0 // 0: 5 months, 1: Year
     
     private let months = ["Apr", "May", "Jun", "Jul", "Aug"]
@@ -106,30 +108,50 @@ public struct BillHistoryView: View {
                         .foregroundColor(EnergyLensTheme.textSecondary)
                         .lineSpacing(2)
                     
-                    // Section: 2025 bills
-                    Text("2025 bills")
+                    // Section: Bills
+                    Text(savedBills.isEmpty ? "Sample bills" : "Imported bills")
                         .font(.system(size: 20, weight: .bold))
                         .foregroundColor(EnergyLensTheme.textPrimary)
                         .padding(.top, 4)
                     
                     // Bill list
                     VStack(spacing: 10) {
-                        // August (Selected/Latest)
-                        Button(action: {
-                            navState.navigate(to: .billAnalysisResult)
-                        }) {
-                            billRow(
-                                month: "August",
-                                subtitle: "180 kWh · LKR 7,850",
-                                iconColor: EnergyLensTheme.accentGreen,
-                                isHighlighted: true
-                            )
+                        if !savedBills.isEmpty {
+                            ForEach(Array(savedBills.enumerated()), id: \.element.id) { index, bill in
+                                Button(action: {
+                                    navState.navigate(to: .billAnalysisResult)
+                                }) {
+                                    let formatter = DateFormatter()
+                                    let _ = formatter.dateFormat = "MMMM yyyy"
+                                    let monthTitle = formatter.string(from: bill.periodEnd)
+                                    let subtitle = "\(Int(round(bill.consumptionKwh))) kWh · LKR \(String(format: "%.2f", bill.billAmount))"
+                                    
+                                    billRow(
+                                        month: monthTitle,
+                                        subtitle: subtitle,
+                                        iconColor: index == 0 ? EnergyLensTheme.accentGreen : EnergyLensTheme.textMuted,
+                                        isHighlighted: index == 0
+                                    )
+                                }
+                            }
+                        } else {
+                            // August (Selected/Latest sample)
+                            Button(action: {
+                                navState.navigate(to: .billAnalysisResult)
+                            }) {
+                                billRow(
+                                    month: "August",
+                                    subtitle: "180 kWh · LKR 7,850",
+                                    iconColor: EnergyLensTheme.accentGreen,
+                                    isHighlighted: true
+                                )
+                            }
+                            
+                            billRow(month: "July", subtitle: "160 kWh", iconColor: EnergyLensTheme.textMuted, isHighlighted: false)
+                            billRow(month: "June", subtitle: "165 kWh · Illustrative", iconColor: EnergyLensTheme.textMuted, isHighlighted: false)
+                            billRow(month: "May", subtitle: "155 kWh · Illustrative", iconColor: EnergyLensTheme.textMuted, isHighlighted: false)
+                            billRow(month: "April", subtitle: "140 kWh · Illustrative", iconColor: EnergyLensTheme.textMuted, isHighlighted: false)
                         }
-                        
-                        billRow(month: "July", subtitle: "160 kWh", iconColor: EnergyLensTheme.textMuted, isHighlighted: false)
-                        billRow(month: "June", subtitle: "165 kWh · Illustrative", iconColor: EnergyLensTheme.textMuted, isHighlighted: false)
-                        billRow(month: "May", subtitle: "155 kWh · Illustrative", iconColor: EnergyLensTheme.textMuted, isHighlighted: false)
-                        billRow(month: "April", subtitle: "140 kWh · Illustrative", iconColor: EnergyLensTheme.textMuted, isHighlighted: false)
                     }
                     .padding(.bottom, 24)
                 }

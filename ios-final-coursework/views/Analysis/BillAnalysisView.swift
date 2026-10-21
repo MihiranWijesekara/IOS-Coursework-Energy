@@ -6,9 +6,11 @@
 //
 
 import SwiftUI
+import SwiftData
 
 public struct BillAnalysisView: View {
     @EnvironmentObject var navState: AppNavigationState
+    @Query(sort: \ElectricityBill.periodEnd, order: .reverse) private var savedBills: [ElectricityBill]
     
     public init() {}
     
@@ -69,24 +71,47 @@ public struct BillAnalysisView: View {
                             .foregroundColor(EnergyLensTheme.textPrimary)
                         
                         Button(action: {
-                            navState.navigate(to: .billAnalysisResult)
+                            if savedBills.isEmpty {
+                                navState.navigate(to: .billHistoryEmpty)
+                            } else {
+                                navState.navigate(to: .billAnalysisResult)
+                            }
                         }) {
                             HStack(alignment: .center) {
                                 VStack(alignment: .leading, spacing: 4) {
-                                    Text("August 2025")
-                                        .font(.system(size: 16, weight: .bold))
-                                        .foregroundColor(Color(red: 0.12, green: 0.38, blue: 0.28))
-                                    
-                                    Text("01 Aug – 31 Aug · 180 kWh")
-                                        .font(.system(size: 13, weight: .regular))
-                                        .foregroundColor(EnergyLensTheme.textSecondary)
+                                    if let latest = savedBills.first {
+                                        let formatter = DateFormatter()
+                                        let _ = formatter.dateFormat = "MMMM yyyy"
+                                        Text(formatter.string(from: latest.periodEnd))
+                                            .font(.system(size: 16, weight: .bold))
+                                            .foregroundColor(Color(red: 0.12, green: 0.38, blue: 0.28))
+                                        
+                                        let periodStr = SwiftDataBillService.formatPeriod(start: latest.periodStart, end: latest.periodEnd)
+                                        Text("\(periodStr) · \(Int(round(latest.consumptionKwh))) kWh")
+                                            .font(.system(size: 13, weight: .regular))
+                                            .foregroundColor(EnergyLensTheme.textSecondary)
+                                    } else {
+                                        Text("August 2025")
+                                            .font(.system(size: 16, weight: .bold))
+                                            .foregroundColor(Color(red: 0.12, green: 0.38, blue: 0.28))
+                                        
+                                        Text("01 Aug – 31 Aug · 180 kWh")
+                                            .font(.system(size: 13, weight: .regular))
+                                            .foregroundColor(EnergyLensTheme.textSecondary)
+                                    }
                                 }
                                 
                                 Spacer()
                                 
-                                Text("LKR 7,850")
-                                    .font(.system(size: 16, weight: .bold))
-                                    .foregroundColor(Color(red: 0.12, green: 0.38, blue: 0.28))
+                                if let latest = savedBills.first {
+                                    Text(String(format: "LKR %.2f", latest.billAmount))
+                                        .font(.system(size: 16, weight: .bold))
+                                        .foregroundColor(Color(red: 0.12, green: 0.38, blue: 0.28))
+                                } else {
+                                    Text("LKR 7,850")
+                                        .font(.system(size: 16, weight: .bold))
+                                        .foregroundColor(Color(red: 0.12, green: 0.38, blue: 0.28))
+                                }
                             }
                             .padding(.vertical, 16)
                             .padding(.horizontal, 18)

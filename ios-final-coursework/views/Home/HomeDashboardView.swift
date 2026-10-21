@@ -11,6 +11,7 @@ import SwiftData
 public struct HomeDashboardView: View {
     @EnvironmentObject var navState: AppNavigationState
     @Environment(\.modelContext) private var modelContext
+    @Query(sort: \ElectricityBill.periodEnd, order: .reverse) private var savedBills: [ElectricityBill]
     
     // Live Weather State
     @State private var weatherTemp: Double? = 33.0
@@ -19,6 +20,18 @@ public struct HomeDashboardView: View {
     @State private var weatherAdvice: String = "High cooling demand"
     @State private var isLoadingWeather: Bool = false
     @State private var weatherFetchFailed: Bool = false
+    
+    // Computed Latest Bill values for Home Dashboard
+    private var latestBillData: (headerMonth: String, kwh: Double, amountText: String, comparisonText: String) {
+        if let latest = savedBills.first {
+            let header = "THIS MONTH · \(SwiftDataBillService.formatMonthYear(date: latest.periodEnd))"
+            let previous = savedBills.count > 1 ? savedBills[1] : nil
+            let comp = SwiftDataBillService.shared.calculateComparison(latest: latest, previous: previous)
+            let amount = String(format: "LKR %.2f", latest.billAmount)
+            return (header, latest.consumptionKwh, amount, comp.text)
+        }
+        return ("THIS MONTH · AUG 2025", 180, "LKR 7,850", "↑ 12.5% vs July · 160 kWh")
+    }
     
     public init() {}
     
@@ -74,44 +87,53 @@ public struct HomeDashboardView: View {
                     }
                     .padding(.bottom, 2)
                     
-                    // Main Highlight Card: THIS MONTH · AUG 2025
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            Text("THIS MONTH · AUG 2025")
-                                .font(.system(size: 11, weight: .semibold))
+                    // Main Highlight Card: THIS MONTH
+                    Button(action: {
+                        if savedBills.isEmpty {
+                            navState.navigate(to: .billHistoryEmpty)
+                        } else {
+                            navState.navigate(to: .billAnalysisResult)
+                        }
+                    }) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack {
+                                Text(latestBillData.headerMonth)
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundColor(Color(red: 0.72, green: 0.92, blue: 0.82))
+                                    .tracking(0.6)
+                                
+                                Spacer()
+                                
+                                Text(savedBills.isEmpty ? "Sample bill" : "Imported bill")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(Color(red: 0.65, green: 0.88, blue: 0.76))
+                            }
+                            
+                            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                                Text(String(format: "%.0f", latestBillData.kwh))
+                                    .font(.system(size: 50, weight: .bold))
+                                    .foregroundColor(.white)
+                                
+                                Text("kWh")
+                                    .font(.system(size: 20, weight: .regular))
+                                    .foregroundColor(.white)
+                            }
+                            
+                            Text(latestBillData.amountText)
+                                .font(.system(size: 22, weight: .bold))
+                                .foregroundColor(.white)
+                            
+                            Text(latestBillData.comparisonText)
+                                .font(.system(size: 13, weight: .regular))
                                 .foregroundColor(Color(red: 0.72, green: 0.92, blue: 0.82))
-                                .tracking(0.6)
-                            
-                            Spacer()
-                            
-                            Text("Imported bill")
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(Color(red: 0.65, green: 0.88, blue: 0.76))
                         }
-                        
-                        HStack(alignment: .firstTextBaseline, spacing: 4) {
-                            Text("180")
-                                .font(.system(size: 50, weight: .bold))
-                                .foregroundColor(.white)
-                            
-                            Text("kWh")
-                                .font(.system(size: 20, weight: .regular))
-                                .foregroundColor(.white)
-                        }
-                        
-                        Text("LKR 7,850")
-                            .font(.system(size: 22, weight: .bold))
-                            .foregroundColor(.white)
-                        
-                        Text("↑ 12.5% vs July · 160 kWh")
-                            .font(.system(size: 13, weight: .regular))
-                            .foregroundColor(Color(red: 0.72, green: 0.92, blue: 0.82))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(20)
+                        .background(EnergyLensTheme.cardGradient)
+                        .cornerRadius(22)
+                        .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(20)
-                    .background(EnergyLensTheme.cardGradient)
-                    .cornerRadius(22)
-                    .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
+                    .buttonStyle(PlainButtonStyle())
                     
                     // Card 2: Next month · 190 kWh
                     Button(action: {

@@ -6,14 +6,28 @@
 //
 
 import SwiftUI
+import SwiftData
 
 public struct BillAnalysisResultView: View {
     @EnvironmentObject var navState: AppNavigationState
+    @Query(sort: \ElectricityBill.periodEnd, order: .reverse) private var savedBills: [ElectricityBill]
     
-    // Sample monthly trend data
-    private let months = ["Apr", "May", "Jun", "Jul", "Aug"]
-    private let values: [CGFloat] = [140, 155, 165, 160, 180]
+    // Sample fallback trend data
+    private let sampleMonths = ["Apr", "May", "Jun", "Jul", "Aug"]
+    private let sampleValues: [CGFloat] = [140, 155, 165, 160, 180]
     private let maxValue: CGFloat = 240
+    
+    // Computed active bill values (Latest saved bill or fallback sample)
+    private var activeBill: (periodText: String, kwh: Double, amountText: String, comparisonText: String, isIncrease: Bool) {
+        if let latest = savedBills.first {
+            let period = SwiftDataBillService.formatPeriod(start: latest.periodStart, end: latest.periodEnd)
+            let previous = savedBills.count > 1 ? savedBills[1] : nil
+            let comp = SwiftDataBillService.shared.calculateComparison(latest: latest, previous: previous)
+            let amount = String(format: "LKR %.2f", latest.billAmount)
+            return (period, latest.consumptionKwh, amount, comp.text, comp.isIncrease)
+        }
+        return ("01 Aug – 31 Aug 2025", 180, "LKR 7,850", "↑ 12.5% vs previous month", true)
+    }
     
     public init() {}
     
@@ -36,12 +50,12 @@ public struct BillAnalysisResultView: View {
                     
                     // Main Highlight Card
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("01 Aug – 31 Aug 2025")
+                        Text(activeBill.periodText)
                             .font(.system(size: 13, weight: .medium))
                             .foregroundColor(Color(red: 0.72, green: 0.92, blue: 0.82))
                         
                         HStack(alignment: .firstTextBaseline, spacing: 6) {
-                            Text("180")
+                            Text(String(format: "%.0f", activeBill.kwh))
                                 .font(.system(size: 52, weight: .bold))
                                 .foregroundColor(.white)
                             
@@ -50,41 +64,41 @@ public struct BillAnalysisResultView: View {
                                 .foregroundColor(.white)
                         }
                         
-                        Text("LKR 7,850")
+                        Text(activeBill.amountText)
                             .font(.system(size: 24, weight: .bold))
                             .foregroundColor(.white)
                         
                         // Alert Banner
                         HStack(spacing: 10) {
-                            Image(systemName: "exclamationmark.triangle")
+                            Image(systemName: activeBill.isIncrease ? "exclamationmark.triangle" : "arrow.down.circle")
                                 .font(.system(size: 18, weight: .semibold))
-                                .foregroundColor(Color(red: 0.75, green: 0.45, blue: 0.08))
+                                .foregroundColor(activeBill.isIncrease ? Color(red: 0.75, green: 0.45, blue: 0.08) : EnergyLensTheme.accentGreen)
                             
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("↑ 12.5% vs previous month")
+                                Text(activeBill.comparisonText)
                                     .font(.system(size: 14, weight: .bold))
-                                    .foregroundColor(Color(red: 0.55, green: 0.32, blue: 0.05))
+                                    .foregroundColor(activeBill.isIncrease ? Color(red: 0.55, green: 0.32, blue: 0.05) : Color(red: 0.12, green: 0.45, blue: 0.28))
                                 
-                                Text("August 180 kWh · July 160 kWh")
+                                Text("Based on your imported billing history")
                                     .font(.system(size: 12, weight: .regular))
-                                    .foregroundColor(Color(red: 0.60, green: 0.38, blue: 0.10))
+                                    .foregroundColor(activeBill.isIncrease ? Color(red: 0.60, green: 0.38, blue: 0.10) : Color(red: 0.15, green: 0.50, blue: 0.30))
                             }
                             Spacer()
                         }
                         .padding(.vertical, 10)
                         .padding(.horizontal, 14)
-                        .background(EnergyLensTheme.alertYellowBg)
+                        .background(activeBill.isIncrease ? EnergyLensTheme.alertYellowBg : Color(red: 0.88, green: 0.96, blue: 0.90))
                         .cornerRadius(12)
                         .overlay(
                             RoundedRectangle(cornerRadius: 12)
-                                .stroke(EnergyLensTheme.alertYellowBorder, lineWidth: 1)
+                                .stroke(activeBill.isIncrease ? EnergyLensTheme.alertYellowBorder : Color.clear, lineWidth: 1)
                         )
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(20)
                     .background(EnergyLensTheme.cardGradient)
-                    .cornerRadius(22)
-                    .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
+                    .cornerRadius(20)
+                    .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)y: 5)
                     
                     // Consumption trend
                     VStack(alignment: .leading, spacing: 8) {
