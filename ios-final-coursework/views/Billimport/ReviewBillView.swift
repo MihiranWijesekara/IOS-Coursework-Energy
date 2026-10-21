@@ -401,10 +401,15 @@ public struct ReviewBillView: View {
 
         do {
             let parsedPeriod = parsePeriod(billingPeriod)
-            let prevReadingValue = Int(previousReading.filter { $0.isNumber }) ?? 0
-            let currentReadingValue = Int(currentReading.filter { $0.isNumber }) ?? 0
-            let consumptionValue = Double(consumption.filter { $0.isNumber || $0 == "." }) ?? 0
-            let amountValue = Double(billAmount.filter { $0.isNumber || $0 == "." }) ?? 0
+            let cleanPrev = previousReading.replacingOccurrences(of: ",", with: "").filter { $0.isNumber }
+            let cleanCurr = currentReading.replacingOccurrences(of: ",", with: "").filter { $0.isNumber }
+            let cleanConsumption = consumption.replacingOccurrences(of: ",", with: "").filter { $0.isNumber || $0 == "." }
+            let cleanAmount = billAmount.replacingOccurrences(of: ",", with: "").filter { $0.isNumber || $0 == "." }
+
+            let prevReadingValue = Int(cleanPrev) ?? 0
+            let currentReadingValue = Int(cleanCurr) ?? 0
+            let consumptionValue = Double(cleanConsumption) ?? 0
+            let amountValue = Double(cleanAmount) ?? 0
 
             let bill = ElectricityBill(
                 periodStart: parsedPeriod.0,
