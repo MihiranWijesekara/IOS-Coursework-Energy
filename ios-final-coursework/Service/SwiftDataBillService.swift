@@ -1,8 +1,9 @@
-//
+﻿//
 //  SwiftDataBillService.swift
 //  ios-final-coursework
 //
-//  Created for managing local SwiftData operations, comparisons, and analytics for Electricity Bills
+//  Production SwiftData Manager for Electricity Bills
+//  Provides CRUD operations, duplicate detection, analytics, and period formatting.
 //
 
 import Foundation
@@ -13,7 +14,7 @@ public final class SwiftDataBillService {
     
     private init() {}
     
-    /// Save an extracted/reviewed bill into SwiftData
+    /// Save an extracted and verified bill into SwiftData
     @discardableResult
     public func saveBill(
         context: ModelContext,
@@ -24,6 +25,24 @@ public final class SwiftDataBillService {
         consumptionKwh: Double,
         billAmount: Double,
         currency: String = "LKR",
+        provider: String = "CEB",
+        accountNumber: String = "",
+        customerName: String? = nil,
+        customerAddress: String? = nil,
+        tariffCategory: String? = nil,
+        billDate: Date? = nil,
+        dueDate: Date? = nil,
+        billingPeriodText: String = "",
+        currentCharges: Double? = nil,
+        fixedCharges: Double? = nil,
+        taxesAndLevies: Double? = nil,
+        previousBalance: Double? = nil,
+        payments: Double? = nil,
+        outstandingBalance: Double? = nil,
+        totalAmountPayable: Double? = nil,
+        rawOcrText: String = "",
+        imageData: Data? = nil,
+        isVerified: Bool = true,
         user: User? = nil
     ) throws -> ElectricityBill {
         let bill = ElectricityBill(
@@ -34,12 +53,78 @@ public final class SwiftDataBillService {
             consumptionKwh: max(0, consumptionKwh),
             billAmount: max(0, billAmount),
             currency: currency,
+            provider: provider,
+            accountNumber: accountNumber,
+            customerName: customerName,
+            customerAddress: customerAddress,
+            tariffCategory: tariffCategory,
+            billDate: billDate,
+            dueDate: dueDate,
+            billingPeriodText: billingPeriodText,
+            currentCharges: currentCharges,
+            fixedCharges: fixedCharges,
+            taxesAndLevies: taxesAndLevies,
+            previousBalance: previousBalance,
+            payments: payments,
+            outstandingBalance: outstandingBalance,
+            totalAmountPayable: totalAmountPayable ?? billAmount,
+            rawOcrText: rawOcrText,
+            uploadedAt: Date(),
+            imageData: imageData,
+            isVerified: isVerified,
             user: user
         )
         
         context.insert(bill)
         try context.save()
         return bill
+    }
+    
+    /// Update an existing saved bill permanently
+    public func updateBill(
+        context: ModelContext,
+        bill: ElectricityBill,
+        accountNumber: String,
+        customerName: String?,
+        prevReading: Int?,
+        currReading: Int?,
+        consumptionKwh: Double,
+        currentCharges: Double?,
+        taxesAndLevies: Double?,
+        outstandingBalance: Double?,
+        totalAmountPayable: Double,
+        billingPeriodText: String,
+        dueDate: Date?
+    ) throws {
+        bill.accountNumber = accountNumber
+        bill.customerName = customerName
+        bill.prevReading = prevReading
+        bill.currReading = currReading
+        bill.consumptionKwh = max(0, consumptionKwh)
+        bill.currentCharges = currentCharges
+        bill.taxesAndLevies = taxesAndLevies
+        bill.outstandingBalance = outstandingBalance
+        bill.totalAmountPayable = totalAmountPayable
+        bill.billAmount = totalAmountPayable
+        bill.billingPeriodText = billingPeriodText
+        bill.dueDate = dueDate
+        bill.isVerified = true
+        
+        try context.save()
+    }
+    
+    /// Detect if a bill for the same account number and billing period already exists
+    public func findDuplicate(
+        context: ModelContext,
+        accountNumber: String,
+        billingPeriodText: String
+    ) throws -> ElectricityBill? {
+        guard !accountNumber.isEmpty else { return nil }
+        let allBills = try fetchAllBills(context: context)
+        return allBills.first { b in
+            b.accountNumber.replacingOccurrences(of: " ", with: "") == accountNumber.replacingOccurrences(of: " ", with: "") &&
+            (!billingPeriodText.isEmpty && b.billingPeriodText.lowercased() == billingPeriodText.lowercased())
+        }
     }
     
     /// Fetch all bills sorted by periodEnd descending (most recent first)
@@ -56,7 +141,7 @@ public final class SwiftDataBillService {
         try context.save()
     }
     
-    /// Calculate month-over-month comparison between the latest bill and previous bill
+    /// Calculate month-over-month comparison between latest bill and previous bill
     public func calculateComparison(latest: ElectricityBill, previous: ElectricityBill?) -> (percentageChange: Double, diffKwh: Double, isIncrease: Bool, text: String) {
         guard let prev = previous, prev.consumptionKwh > 0 else {
             return (0, 0, false, "First imported bill")
@@ -67,13 +152,10 @@ public final class SwiftDataBillService {
         let isIncrease = diff >= 0
         
         let arrow = isIncrease ? "↑" : "↓"
-        let sign = isIncrease ? "+" : ""
         let percentStr = String(format: "%.1f", abs(percent))
-        let diffStr = String(format: "%.0f", abs(diff))
         
         let formatter = DateFormatter()
         formatter.dateFormat = "MMMM"
-        let latestMonth = formatter.string(from: latest.periodEnd)
         let prevMonth = formatter.string(from: prev.periodEnd)
         
         let summaryText = "\(arrow) \(percentStr)% vs \(prevMonth) · \(Int(round(prev.consumptionKwh))) kWh"

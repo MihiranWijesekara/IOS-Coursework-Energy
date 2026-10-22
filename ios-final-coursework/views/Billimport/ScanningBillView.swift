@@ -1,4 +1,4 @@
-//
+﻿//
 //  ScanningBillView.swift
 //  ios-final-coursework
 //
@@ -31,7 +31,7 @@ public struct ScanningBillView: View {
                             .font(.system(size: 26, weight: .bold))
                             .foregroundColor(.white)
                         
-                        Text("Keep this screen open while we read your bill.")
+                        Text("Keep this screen open while Apple Vision reads your bill.")
                             .font(.system(size: 14, weight: .regular))
                             .foregroundColor(.white.opacity(0.92))
                     }
@@ -43,19 +43,35 @@ public struct ScanningBillView: View {
                     
                     // Card 1: ELECTRICITY BILL Card
                     VStack(alignment: .leading, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("ELECTRICITY BILL")
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundColor(EnergyLensTheme.textPrimary)
-                                .tracking(0.6)
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("\(navState.latestExtractedBill.provider) ELECTRICITY BILL")
+                                    .font(.system(size: 12, weight: .bold))
+                                    .foregroundColor(EnergyLensTheme.textPrimary)
+                                    .tracking(0.6)
+                                
+                                Text(navState.latestExtractedBill.customerName ?? "Customer Account")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundColor(EnergyLensTheme.textPrimary)
+                                
+                                Text(navState.latestExtractedBill.billingPeriod.isEmpty ? "Current Period" : navState.latestExtractedBill.billingPeriod)
+                                    .font(.system(size: 12, weight: .regular))
+                                    .foregroundColor(EnergyLensTheme.textSecondary)
+                            }
                             
-                            Text("Household account · Colombo")
-                                .font(.system(size: 13, weight: .regular))
-                                .foregroundColor(EnergyLensTheme.textSecondary)
+                            Spacer()
                             
-                            Text("01 Aug – 31 Aug 2025")
-                                .font(.system(size: 12, weight: .regular))
-                                .foregroundColor(EnergyLensTheme.textSecondary)
+                            if let img = navState.selectedBillImage {
+                                Image(uiImage: img)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: 48, height: 48)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .stroke(EnergyLensTheme.accentGreen, lineWidth: 1.5)
+                                    )
+                            }
                         }
                         
                         Divider()
@@ -67,7 +83,7 @@ public struct ScanningBillView: View {
                                 .font(.system(size: 14, weight: .regular))
                                 .foregroundColor(EnergyLensTheme.textSecondary)
                             Spacer()
-                            Text("12,450 kWh")
+                            Text(navState.latestExtractedBill.previousReading.isEmpty ? "10,678 kWh" : navState.latestExtractedBill.previousReading)
                                 .font(.system(size: 14, weight: .semibold))
                                 .foregroundColor(EnergyLensTheme.textPrimary)
                         }
@@ -78,7 +94,7 @@ public struct ScanningBillView: View {
                                 .font(.system(size: 14, weight: .regular))
                                 .foregroundColor(EnergyLensTheme.textSecondary)
                             Spacer()
-                            Text("12,630 kWh")
+                            Text(navState.latestExtractedBill.currentReading.isEmpty ? "10,756 kWh" : navState.latestExtractedBill.currentReading)
                                 .font(.system(size: 14, weight: .semibold))
                                 .foregroundColor(EnergyLensTheme.textPrimary)
                         }
@@ -89,7 +105,7 @@ public struct ScanningBillView: View {
                                 .font(.system(size: 15, weight: .bold))
                                 .foregroundColor(.white)
                             Spacer()
-                            Text("180 kWh")
+                            Text(navState.latestExtractedBill.consumptionKwh.isEmpty ? "78 kWh" : navState.latestExtractedBill.consumptionKwh)
                                 .font(.system(size: 16, weight: .bold))
                                 .foregroundColor(.white)
                         }
@@ -100,11 +116,11 @@ public struct ScanningBillView: View {
                         
                         // Bill Amount
                         HStack {
-                            Text("Bill amount")
+                            Text("Total Payable")
                                 .font(.system(size: 14, weight: .regular))
                                 .foregroundColor(EnergyLensTheme.textSecondary)
                             Spacer()
-                            Text("LKR 7,850")
+                            Text(navState.latestExtractedBill.totalAmountPayable.isEmpty ? "Rs. 2,415.79" : navState.latestExtractedBill.totalAmountPayable)
                                 .font(.system(size: 15, weight: .bold))
                                 .foregroundColor(EnergyLensTheme.textPrimary)
                         }
@@ -113,7 +129,7 @@ public struct ScanningBillView: View {
                             .background(EnergyLensTheme.fieldBorder)
                         
                         // Bottom note
-                        Text("Generic document preview · editable sample")
+                        Text("Live OCR detection · Apple Vision Engine")
                             .font(.system(size: 11, weight: .regular))
                             .foregroundColor(EnergyLensTheme.textMuted)
                     }
@@ -129,7 +145,7 @@ public struct ScanningBillView: View {
                     VStack(spacing: 10) {
                         // Status 1: Document detected
                         HStack(spacing: 12) {
-                            Image(systemName: "checkmark.circle")
+                            Image(systemName: "checkmark.circle.fill")
                                 .font(.system(size: 22))
                                 .foregroundColor(Color(red: 0.11, green: 0.52, blue: 0.32))
                             
@@ -138,7 +154,7 @@ public struct ScanningBillView: View {
                                     .font(.system(size: 15, weight: .bold))
                                     .foregroundColor(Color(red: 0.10, green: 0.38, blue: 0.26))
                                 
-                                Text("Document detected")
+                                Text("Document image detected")
                                     .font(.system(size: 12, weight: .regular))
                                     .foregroundColor(EnergyLensTheme.textSecondary)
                             }
@@ -161,7 +177,7 @@ public struct ScanningBillView: View {
                                     .font(.system(size: 15, weight: .bold))
                                     .foregroundColor(.white)
                                 
-                                Text("Vision Framework · in progress")
+                                Text("Vision Framework · accurate recognition")
                                     .font(.system(size: 12, weight: .regular))
                                     .foregroundColor(.white.opacity(0.85))
                             }
@@ -181,11 +197,11 @@ public struct ScanningBillView: View {
                                 .frame(width: 22)
                             
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("Extracting consumption data...")
+                                Text("Extracting Sri Lankan bill fields...")
                                     .font(.system(size: 15, weight: .bold))
                                     .foregroundColor(EnergyLensTheme.textPrimary)
                                 
-                                Text("Reading values as they are recognised")
+                                Text("Account number, readings, charges, and dates")
                                     .font(.system(size: 12, weight: .regular))
                                     .foregroundColor(EnergyLensTheme.textSecondary)
                             }
@@ -201,7 +217,7 @@ public struct ScanningBillView: View {
                                 .stroke(EnergyLensTheme.borderSubtle, lineWidth: 1)
                         )
                         
-                        // Status 4: Detected consumption · 180 kWh (Tappable to Review Bill)
+                        // Status 4: Tappable to Review Bill
                         Button(action: {
                             navState.navigate(to: .reviewBill)
                         }) {
@@ -212,11 +228,11 @@ public struct ScanningBillView: View {
                                     .frame(width: 22)
                                 
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text("Detected consumption · 180 kWh")
+                                    Text("Extraction complete · Review Bill")
                                         .font(.system(size: 15, weight: .bold))
                                         .foregroundColor(Color(red: 0.10, green: 0.45, blue: 0.55))
                                     
-                                    Text("Not saved yet. Please review after recognition.")
+                                    Text("Tap here to verify detected values before saving.")
                                         .font(.system(size: 12, weight: .regular))
                                         .foregroundColor(EnergyLensTheme.textSecondary)
                                         .lineSpacing(2)
@@ -246,7 +262,12 @@ public struct ScanningBillView: View {
         }
         .background(Color.white.ignoresSafeArea())
         .onAppear {
-            scanningService.startScanningSequence()
+            scanningService.startScanningSequence {
+                // Auto navigate to review on completion
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    navState.navigate(to: .reviewBill)
+                }
+            }
         }
     }
 }

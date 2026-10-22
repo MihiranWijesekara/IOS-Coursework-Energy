@@ -1,8 +1,8 @@
-//
+﻿//
 //  SelectBillImageView.swift
 //  ios-final-coursework
 //
-//  Created by student5 on 2026-10-16.
+//  Interactive Bill Selection & Vision OCR Trigger Screen
 //
 
 import SwiftUI
@@ -17,6 +17,7 @@ public struct SelectBillImageView: View {
     @State private var isProcessingOCR = false
     @State private var errorMessage = ""
     @State private var extractedBillData: ExtractedBillData? = nil
+    
     public init() {}
 
     public var body: some View {
@@ -35,12 +36,13 @@ public struct SelectBillImageView: View {
                             .font(.system(size: 28, weight: .bold))
                             .foregroundColor(EnergyLensTheme.textPrimary)
 
-                        Text("Choose a clear image of the entire bill.")
+                        Text("Choose a clear screenshot or photo of your Sri Lankan electricity bill.")
                             .font(.system(size: 15, weight: .regular))
                             .foregroundColor(EnergyLensTheme.textSecondary)
                     }
                     .padding(.bottom, 4)
 
+                    // Photo Picker Button
                     PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
                         HStack(spacing: 12) {
                             if isProcessingOCR {
@@ -53,7 +55,7 @@ public struct SelectBillImageView: View {
                                     .foregroundColor(.white)
                             }
 
-                            Text(isProcessingOCR ? "Recognising bill..." : "Choose from Photos")
+                            Text(isProcessingOCR ? "Processing with Apple Vision..." : (inputImage != nil ? "Change Selected Image" : "Choose from Photos"))
                                 .font(.system(size: 16, weight: .bold))
                                 .foregroundColor(.white)
 
@@ -69,12 +71,14 @@ public struct SelectBillImageView: View {
                         .cornerRadius(14)
                         .shadow(color: Color.black.opacity(0.12), radius: 6, x: 0, y: 3)
                     }
+                    .disabled(isProcessingOCR)
                     .onChange(of: selectedPhotoItem) { _, newItem in
                         Task {
                             await processSelectedImage(newItem)
                         }
                     }
 
+                    // Camera Picker Button
                     Button(action: {
                         showCameraPicker = true
                     }) {
@@ -83,7 +87,7 @@ public struct SelectBillImageView: View {
                                 .font(.system(size: 18, weight: .semibold))
                                 .foregroundColor(Color(red: 0.10, green: 0.38, blue: 0.36))
 
-                            Text("Take Photo")
+                            Text("Take Photo with Camera")
                                 .font(.system(size: 16, weight: .bold))
                                 .foregroundColor(Color(red: 0.10, green: 0.38, blue: 0.36))
 
@@ -98,6 +102,7 @@ public struct SelectBillImageView: View {
                         .background(Color(red: 0.88, green: 0.95, blue: 0.97))
                         .cornerRadius(14)
                     }
+                    .disabled(isProcessingOCR)
                     .sheet(isPresented: $showCameraPicker) {
                         ImagePicker(image: $inputImage, sourceType: .camera) {
                             Task {
@@ -106,14 +111,57 @@ public struct SelectBillImageView: View {
                         }
                     }
 
-                    Text("DOCUMENT EXAMPLE")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundColor(EnergyLensTheme.textSecondary)
-                        .tracking(0.6)
-                        .padding(.top, 8)
+                    // Preview of Selected Image OR Reference Template
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text(inputImage != nil ? "SELECTED BILL IMAGE PREVIEW" : "DOCUMENT EXAMPLE / TEMPLATE")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundColor(EnergyLensTheme.textSecondary)
+                                .tracking(0.6)
+                            
+                            Spacer()
+                            
+                            if inputImage != nil {
+                                Button(action: {
+                                    inputImage = nil
+                                    navState.selectedBillImage = nil
+                                }) {
+                                    Text("Remove")
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundColor(.red)
+                                }
+                            }
+                        }
+                        .padding(.top, 4)
 
-                    SampleBillDocumentView()
+                        if let image = inputImage {
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(maxHeight: 260)
+                                .cornerRadius(14)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 14)
+                                        .stroke(EnergyLensTheme.accentGreen, lineWidth: 2)
+                                )
+                                .shadow(color: Color.black.opacity(0.1), radius: 8, x: 0, y: 4)
+                        } else if let cached = navState.selectedBillImage {
+                            Image(uiImage: cached)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(maxHeight: 260)
+                                .cornerRadius(14)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 14)
+                                        .stroke(EnergyLensTheme.accentGreen, lineWidth: 2)
+                                )
+                                .shadow(color: Color.black.opacity(0.1), radius: 8, x: 0, y: 4)
+                        } else {
+                            SampleBillDocumentView()
+                        }
+                    }
 
+                    // Native Apple Vision Feature Info Card
                     HStack(alignment: .top, spacing: 14) {
                         Image(systemName: "viewfinder")
                             .font(.system(size: 20))
@@ -122,11 +170,11 @@ public struct SelectBillImageView: View {
                             .padding(.top, 2)
 
                         VStack(alignment: .leading, spacing: 3) {
-                            Text("Automatic extraction")
+                            Text("Automatic Vision Extraction")
                                 .font(.system(size: 15, weight: .bold))
                                 .foregroundColor(EnergyLensTheme.textPrimary)
 
-                            Text("Vision Framework detects the bill text. You'll review the readings and amount next.")
+                            Text("Apple Vision OCR reads meter readings, electricity consumption, charges, and account details with mathematical validation.")
                                 .font(.system(size: 12, weight: .regular))
                                 .foregroundColor(EnergyLensTheme.textSecondary)
                                 .lineSpacing(2)
@@ -142,27 +190,37 @@ public struct SelectBillImageView: View {
                         RoundedRectangle(cornerRadius: 14)
                             .stroke(Color(red: 0.85, green: 0.92, blue: 0.94), lineWidth: 1)
                     )
-                    .padding(.bottom, 24)
 
+                    // Extract Button
                     Button(action: {
-                        if let image = inputImage {
+                        if let image = inputImage ?? navState.selectedBillImage {
                             Task {
                                 await processSelectedImage(nil, imageOverride: image)
                             }
                         } else {
+                            // If no image has been selected yet, route to Scanning demo view
                             navState.navigate(to: .scanningBill)
                         }
                     }) {
                         HStack(spacing: 12) {
-                            Image(systemName: "doc.text.fill")
-                                .font(.system(size: 18, weight: .semibold))
-                                .foregroundColor(.white)
+                            if isProcessingOCR {
+                                ProgressView()
+                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            } else {
+                                Image(systemName: "doc.text.fill")
+                                    .font(.system(size: 18, weight: .semibold))
+                                    .foregroundColor(.white)
+                            }
 
-                            Text("Extract the Bill from Image")
+                            Text(isProcessingOCR ? "Extracting..." : "Extract Bill Information")
                                 .font(.system(size: 16, weight: .bold))
                                 .foregroundColor(.white)
 
                             Spacer()
+                            
+                            Image(systemName: "arrow.right")
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundColor(.white.opacity(0.85))
                         }
                         .padding(.vertical, 16)
                         .padding(.horizontal, 18)
@@ -170,15 +228,21 @@ public struct SelectBillImageView: View {
                         .cornerRadius(14)
                         .shadow(color: Color.black.opacity(0.12), radius: 6, x: 0, y: 3)
                     }
+                    .disabled(isProcessingOCR)
 
                     if !errorMessage.isEmpty {
-                        Text(errorMessage)
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(.red)
-                            .padding(.top, 4)
+                        HStack(spacing: 8) {
+                            Image(systemName: "exclamationmark.circle.fill")
+                                .foregroundColor(.red)
+                            Text(errorMessage)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(.red)
+                        }
+                        .padding(.top, 4)
                     }
                 }
                 .padding(.horizontal, 24)
+                .padding(.bottom, 24)
             }
         }
         .background(Color.white.ignoresSafeArea())
@@ -208,30 +272,33 @@ public struct SelectBillImageView: View {
             inputImage = image
             navState.selectedBillImage = image
 
-            // 1. Run Vision OCR
+            // 1. Run Apple Vision Text Recognition
             let rawText = try await BillTextRecognitionService.recognizeText(from: image)
 
-            // 2. Parse into ExtractedBillData
+            // 2. Parse into ExtractedBillData structure
             let parsed = ExtractedBillData.parse(from: rawText)
             extractedBillData = parsed
+            navState.latestExtractedBill = parsed
+            navState.extractedBillData = parsed
             isProcessingOCR = false
 
             // 3. Check for unreadable/blank image
-            if parsed.rawText.isEmpty {
+            if parsed.rawText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 navState.navigate(to: .billScanError)
                 return
             }
 
             // 4. Save to shared navState and navigate to Review Bill
-            navState.extractedBillData = parsed
             navState.navigate(to: .reviewBill)
         } catch {
             isProcessingOCR = false
+            errorMessage = "OCR failed: \(error.localizedDescription)"
             navState.navigate(to: .billScanError)
         }
     }
 }
 
+// Camera Helper Picker
 struct ImagePicker: UIViewControllerRepresentable {
     @Binding var image: UIImage?
     var sourceType: UIImagePickerController.SourceType = .camera
@@ -266,7 +333,7 @@ struct ImagePicker: UIViewControllerRepresentable {
             parent.presentationMode.wrappedValue.dismiss()
         }
 
-        func imagePickerControllerDidCancel(_ picker: UIImagePickerController, ) {
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
             parent.presentationMode.wrappedValue.dismiss()
         }
     }

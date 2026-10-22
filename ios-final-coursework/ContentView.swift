@@ -42,6 +42,8 @@ public struct ContentView: View {
                     BillAnalysisResultView()
                 case .billHistory:
                     BillHistoryView()
+                case .billDetail:
+                    BillDetailView(billId: navState.selectedBillId)
                 case .consumptionBreakdown:
                     ConsumptionBreakdownView()
                 case .appliances:

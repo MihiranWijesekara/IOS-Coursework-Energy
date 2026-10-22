@@ -42,6 +42,7 @@ public enum AppScreen: String, CaseIterable, Identifiable {
     case weatherError = "31. Weather (Offline)"
     case billScanError = "32. Bill (Unreadable)"
     case homeSkeleton = "33. Home (Loading)"
+    case billDetail = "34. Bill Details"
     
     public var id: String { rawValue }
     
@@ -79,6 +80,7 @@ public enum AppScreen: String, CaseIterable, Identifiable {
         case .weatherError: return 31
         case .billScanError: return 32
         case .homeSkeleton: return 33
+        case .billDetail: return 34
         }
     }
 }
@@ -114,6 +116,8 @@ public final class AppNavigationState: ObservableObject {
     // Extracted OCR Bill State
     @Published public var selectedBillImage: UIImage? = nil
     @Published public var extractedBillData: ExtractedBillData = .sample
+    @Published public var latestExtractedBill: ExtractedBillData = .sample
+    @Published public var selectedBillId: UUID? = nil
 
     public init() {}
     

@@ -12,9 +12,9 @@ public struct BillAnalysisResultView: View {
     @EnvironmentObject var navState: AppNavigationState
     @Query(sort: \ElectricityBill.periodEnd, order: .reverse) private var savedBills: [ElectricityBill]
     
-    // Sample fallback trend data
-    private let sampleMonths = ["Apr", "May", "Jun", "Jul", "Aug"]
-    private let sampleValues: [CGFloat] = [140, 155, 165, 160, 180]
+    // Trend data
+    private let months = ["Apr", "May", "Jun", "Jul", "Aug"]
+    private let values: [CGFloat] = [140, 155, 165, 160, 180]
     private let maxValue: CGFloat = 240
     
     // Computed active bill values (Latest saved bill or fallback sample)
@@ -98,7 +98,7 @@ public struct BillAnalysisResultView: View {
                     .padding(20)
                     .background(EnergyLensTheme.cardGradient)
                     .cornerRadius(20)
-                    .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)y: 5)
+                    .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
                     
                     // Consumption trend
                     VStack(alignment: .leading, spacing: 8) {

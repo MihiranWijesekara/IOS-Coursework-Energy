@@ -174,18 +174,58 @@ public final class ElectricityBill {
     public var billAmount: Double
     public var currency: String
     
+    // Additional OCR & Bill Detail Fields
+    public var provider: String = "CEB"                  // "CEB" or "LECO"
+    public var accountNumber: String = ""               // e.g. "5410264908"
+    public var customerName: String? = nil              // e.g. "R RANJITH"
+    public var customerAddress: String? = nil
+    public var tariffCategory: String? = nil            // e.g. "D1"
+    public var billDate: Date? = nil                    // Reading / bill issue date
+    public var dueDate: Date? = nil                     // Payment due date
+    public var billingPeriodText: String = ""           // Formatted period string
+    public var currentCharges: Double? = nil            // Electricity charge for current month
+    public var fixedCharges: Double? = nil              // Fixed charge component
+    public var taxesAndLevies: Double? = nil            // SSC Levy / adjustments
+    public var previousBalance: Double? = nil           // B/F (Brought forward)
+    public var payments: Double? = nil                  // Payments made
+    public var outstandingBalance: Double? = nil        // Net outstanding balance
+    public var totalAmountPayable: Double = 0.0         // Total due amount in LKR
+    public var rawOcrText: String = ""                  // Complete OCR text extracted
+    public var uploadedAt: Date = Date()                // Date scanned/uploaded
+    @Attribute(.externalStorage) public var imageData: Data? = nil // Compressed screenshot data
+    public var isVerified: Bool = false                 // User confirmation flag
+    
     // Relationship to User
     public var user: User?
     
     public init(
         id: UUID = UUID(),
-        periodStart: Date,
-        periodEnd: Date,
+        periodStart: Date = Date(),
+        periodEnd: Date = Date(),
         prevReading: Int? = nil,
         currReading: Int? = nil,
-        consumptionKwh: Double,
-        billAmount: Double,
+        consumptionKwh: Double = 0.0,
+        billAmount: Double = 0.0,
         currency: String = "LKR",
+        provider: String = "CEB",
+        accountNumber: String = "",
+        customerName: String? = nil,
+        customerAddress: String? = nil,
+        tariffCategory: String? = nil,
+        billDate: Date? = nil,
+        dueDate: Date? = nil,
+        billingPeriodText: String = "",
+        currentCharges: Double? = nil,
+        fixedCharges: Double? = nil,
+        taxesAndLevies: Double? = nil,
+        previousBalance: Double? = nil,
+        payments: Double? = nil,
+        outstandingBalance: Double? = nil,
+        totalAmountPayable: Double? = nil,
+        rawOcrText: String = "",
+        uploadedAt: Date = Date(),
+        imageData: Data? = nil,
+        isVerified: Bool = false,
         user: User? = nil
     ) {
         self.id = id
@@ -196,6 +236,25 @@ public final class ElectricityBill {
         self.consumptionKwh = consumptionKwh
         self.billAmount = billAmount
         self.currency = currency
+        self.provider = provider
+        self.accountNumber = accountNumber
+        self.customerName = customerName
+        self.customerAddress = customerAddress
+        self.tariffCategory = tariffCategory
+        self.billDate = billDate
+        self.dueDate = dueDate
+        self.billingPeriodText = billingPeriodText.isEmpty ? SwiftDataBillService.formatPeriod(start: periodStart, end: periodEnd) : billingPeriodText
+        self.currentCharges = currentCharges
+        self.fixedCharges = fixedCharges
+        self.taxesAndLevies = taxesAndLevies
+        self.previousBalance = previousBalance
+        self.payments = payments
+        self.outstandingBalance = outstandingBalance
+        self.totalAmountPayable = totalAmountPayable ?? billAmount
+        self.rawOcrText = rawOcrText
+        self.uploadedAt = uploadedAt
+        self.imageData = imageData
+        self.isVerified = isVerified
         self.user = user
     }
 }

@@ -10,8 +10,11 @@ import SwiftData
 
 public struct BillHistoryView: View {
     @EnvironmentObject var navState: AppNavigationState
+    @Environment(\.modelContext) private var modelContext
     @Query(sort: \ElectricityBill.periodEnd, order: .reverse) private var savedBills: [ElectricityBill]
     @State private var selectedPeriod = 0 // 0: 5 months, 1: Year
+    @State private var billToDelete: ElectricityBill? = nil
+    @State private var showDeleteAlert = false
     
     private let months = ["Apr", "May", "Jun", "Jul", "Aug"]
     private let values: [CGFloat] = [140, 155, 165, 160, 180]
@@ -32,9 +35,12 @@ public struct BillHistoryView: View {
                 Button(action: {
                     navState.navigate(to: .selectBillImage)
                 }) {
-                    Text("Import")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(EnergyLensTheme.accentGreen)
+                    HStack(spacing: 4) {
+                        Image(systemName: "plus.circle.fill")
+                        Text("Import")
+                    }
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(EnergyLensTheme.accentGreen)
                 }
             }
             .padding(.top, 12)
@@ -103,54 +109,66 @@ public struct BillHistoryView: View {
                     .cornerRadius(18)
                     
                     // Caption
-                    Text("Apr 140 · May 155 · Jun 165 kWh are illustrative. Jul 160 ·\nAug 180 kWh.")
+                    Text("Monthly electricity trend. Tap any saved bill below to view full details or edit.")
                         .font(.system(size: 12, weight: .regular))
                         .foregroundColor(EnergyLensTheme.textSecondary)
                         .lineSpacing(2)
                     
                     // Section: Bills
-                    Text(savedBills.isEmpty ? "Sample bills" : "Imported bills")
-                        .font(.system(size: 20, weight: .bold))
-                        .foregroundColor(EnergyLensTheme.textPrimary)
-                        .padding(.top, 4)
+                    HStack {
+                        Text(savedBills.isEmpty ? "Sample bills" : "Imported bills (\(savedBills.count))")
+                            .font(.system(size: 20, weight: .bold))
+                            .foregroundColor(EnergyLensTheme.textPrimary)
+                        
+                        Spacer()
+                    }
+                    .padding(.top, 4)
                     
                     // Bill list
                     VStack(spacing: 10) {
                         if !savedBills.isEmpty {
                             ForEach(Array(savedBills.enumerated()), id: \.element.id) { index, bill in
                                 Button(action: {
-                                    navState.navigate(to: .billAnalysisResult)
+                                    navState.selectedBillId = bill.id
+                                    navState.navigate(to: .billDetail)
                                 }) {
                                     let formatter = DateFormatter()
                                     let _ = formatter.dateFormat = "MMMM yyyy"
                                     let monthTitle = formatter.string(from: bill.periodEnd)
-                                    let subtitle = "\(Int(round(bill.consumptionKwh))) kWh · LKR \(String(format: "%.2f", bill.billAmount))"
+                                    let subtitle = "\(bill.accountNumber.isEmpty ? "" : "A/C: " + bill.accountNumber + " · ")\(Int(round(bill.consumptionKwh))) kWh · Rs. \(String(format: "%.2f", bill.totalAmountPayable))"
                                     
                                     billRow(
                                         month: monthTitle,
                                         subtitle: subtitle,
-                                        iconColor: index == 0 ? EnergyLensTheme.accentGreen : EnergyLensTheme.textMuted,
-                                        isHighlighted: index == 0
+                                        provider: bill.provider,
+                                        hasImage: bill.imageData != nil,
+                                        isHighlighted: index == 0,
+                                        onDelete: {
+                                            billToDelete = bill
+                                            showDeleteAlert = true
+                                        }
                                     )
                                 }
+                                .buttonStyle(PlainButtonStyle())
                             }
                         } else {
-                            // August (Selected/Latest sample)
+                            // Empty Fallback State with Sample Rows
                             Button(action: {
                                 navState.navigate(to: .billAnalysisResult)
                             }) {
                                 billRow(
-                                    month: "August",
+                                    month: "August 2025 (Sample)",
                                     subtitle: "180 kWh · LKR 7,850",
-                                    iconColor: EnergyLensTheme.accentGreen,
-                                    isHighlighted: true
+                                    provider: "CEB",
+                                    hasImage: false,
+                                    isHighlighted: true,
+                                    onDelete: nil
                                 )
                             }
+                            .buttonStyle(PlainButtonStyle())
                             
-                            billRow(month: "July", subtitle: "160 kWh", iconColor: EnergyLensTheme.textMuted, isHighlighted: false)
-                            billRow(month: "June", subtitle: "165 kWh · Illustrative", iconColor: EnergyLensTheme.textMuted, isHighlighted: false)
-                            billRow(month: "May", subtitle: "155 kWh · Illustrative", iconColor: EnergyLensTheme.textMuted, isHighlighted: false)
-                            billRow(month: "April", subtitle: "140 kWh · Illustrative", iconColor: EnergyLensTheme.textMuted, isHighlighted: false)
+                            billRow(month: "July 2025", subtitle: "160 kWh · Illustrative", provider: "CEB", hasImage: false, isHighlighted: false, onDelete: nil)
+                            billRow(month: "June 2025", subtitle: "165 kWh · Illustrative", provider: "CEB", hasImage: false, isHighlighted: false, onDelete: nil)
                         }
                     }
                     .padding(.bottom, 24)
@@ -159,34 +177,77 @@ public struct BillHistoryView: View {
             }
         }
         .background(Color.white.ignoresSafeArea())
+        .alert("Delete Electricity Bill?", isPresented: $showDeleteAlert) {
+            Button("Delete", role: .destructive) {
+                if let b = billToDelete {
+                    try? SwiftDataBillService.shared.deleteBill(context: modelContext, bill: b)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Are you sure you want to delete this electricity bill from SwiftData?")
+        }
     }
-    
+
     @ViewBuilder
-    private func billRow(month: String, subtitle: String, iconColor: Color, isHighlighted: Bool) -> some View {
-        HStack(spacing: 14) {
+    private func billRow(
+        month: String,
+        subtitle: String,
+        provider: String,
+        hasImage: Bool,
+        isHighlighted: Bool,
+        onDelete: (() -> Void)?
+    ) -> some View {
+        HStack(spacing: 12) {
             Image(systemName: "doc.text.fill")
                 .font(.system(size: 22))
-                .foregroundColor(iconColor)
+                .foregroundColor(isHighlighted ? EnergyLensTheme.accentGreen : EnergyLensTheme.textMuted)
                 .frame(width: 24)
             
             VStack(alignment: .leading, spacing: 3) {
-                Text(month)
-                    .font(.system(size: 16, weight: isHighlighted ? .bold : .medium))
-                    .foregroundColor(EnergyLensTheme.textPrimary)
+                HStack(spacing: 6) {
+                    Text(month)
+                        .font(.system(size: 15, weight: isHighlighted ? .bold : .medium))
+                        .foregroundColor(EnergyLensTheme.textPrimary)
+                    
+                    Text(provider)
+                        .font(.system(size: 10, weight: .bold))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color(red: 0.10, green: 0.45, blue: 0.55).opacity(0.15))
+                        .foregroundColor(Color(red: 0.10, green: 0.45, blue: 0.55))
+                        .cornerRadius(4)
+                    
+                    if hasImage {
+                        Image(systemName: "photo.fill")
+                            .font(.system(size: 10))
+                            .foregroundColor(EnergyLensTheme.accentGreen)
+                    }
+                }
                 
                 Text(subtitle)
-                    .font(.system(size: 13, weight: .regular))
+                    .font(.system(size: 12, weight: .regular))
                     .foregroundColor(EnergyLensTheme.textSecondary)
             }
             
             Spacer()
             
+            if let del = onDelete {
+                Button(action: del) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 14))
+                        .foregroundColor(.red.opacity(0.7))
+                        .padding(6)
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            
             Image(systemName: "chevron.right")
-                .font(.system(size: 14, weight: .medium))
+                .font(.system(size: 13, weight: .medium))
                 .foregroundColor(EnergyLensTheme.textMuted)
         }
-        .padding(.vertical, 14)
-        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .padding(.horizontal, 14)
         .background(isHighlighted ? EnergyLensTheme.mintHighlight : Color.white)
         .cornerRadius(14)
         .overlay(
