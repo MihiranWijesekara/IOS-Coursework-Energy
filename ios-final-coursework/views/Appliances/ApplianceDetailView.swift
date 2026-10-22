@@ -13,6 +13,9 @@ public struct ApplianceDetailView: View {
     @Environment(\.modelContext) private var modelContext
 
     public let applianceId: UUID?
+    
+    @Query(sort: \ElectricityBill.periodEnd, order: .reverse) private var savedBills: [ElectricityBill]
+    @Query(sort: \Appliance.name) private var allAppliances: [Appliance]
 
     @State private var appliance: Appliance?
     @State private var isEditing = false
@@ -20,6 +23,27 @@ public struct ApplianceDetailView: View {
     public init(applianceId: UUID? = nil) {
         self.applianceId = applianceId
         self._appliance = State(initialValue: nil)
+    }
+    
+    // Dynamic Calibrated calculations for this appliance
+    private var calibratedData: (calibratedKwh: Double, percentage: Double, totalBillKwh: Double, monthlyCostLkr: Double) {
+        let latestBill = savedBills.first
+        let billKwh = latestBill?.consumptionKwh ?? 180.0
+        
+        if let app = appliance {
+            let item = ApplianceCalibrationService.shared.calibrateSingleAppliance(
+                appliance: app,
+                allAppliances: allAppliances,
+                targetBillKwh: billKwh
+            )
+            let cost = ApplianceCalibrationService.shared.estimateMonthlyCost(calibratedKwh: item.calibratedKwh, bill: latestBill)
+            return (item.calibratedKwh, item.percentage, billKwh, cost)
+        } else {
+            // Fallback default (Air Conditioner: 40% of 180 kWh = 72 kWh)
+            let kwh = billKwh * 0.40
+            let cost = kwh * 43.75
+            return (kwh, 0.40, billKwh, cost)
+        }
     }
     
     public var body: some View {
@@ -46,31 +70,47 @@ public struct ApplianceDetailView: View {
             
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 18) {
-                                    // Title
-                                    Text(appliance?.name ?? "Air Conditioner")
-                                        .font(.system(size: 30, weight: .bold))
-                                        .foregroundColor(EnergyLensTheme.textPrimary)
-                                    
-                                    // Main Highlight Card
-                                    VStack(alignment: .leading, spacing: 10) {
-                                        Text("Estimated Monthly Contribution")
-                                            .font(.system(size: 13, weight: .medium))
-                                            .foregroundColor(Color(red: 0.72, green: 0.92, blue: 0.82))
-                                        
-                                        HStack(alignment: .firstTextBaseline, spacing: 6) {
-                                            Text("\(Int(appliance?.estimatedMonthlyKwh ?? 72))")
-                                                .font(.system(size: 52, weight: .bold))
-                                                .foregroundColor(.white)
-                                            
-                                            Text("kWh")
-                                                .font(.system(size: 22, weight: .regular))
-                                                .foregroundColor(.white)
-                                        }
-                                        
-                                        Text("Based on your monthly appliance profile")
-                                            .font(.system(size: 13, weight: .regular))
-                                            .foregroundColor(Color(red: 0.72, green: 0.92, blue: 0.82))
-                                    }
+                    // Title
+                    Text(appliance?.name ?? "Air Conditioner")
+                        .font(.system(size: 30, weight: .bold))
+                        .foregroundColor(EnergyLensTheme.textPrimary)
+                    
+                    // Main Highlight Card
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Text("Estimated Monthly Contribution")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(Color(red: 0.72, green: 0.92, blue: 0.82))
+                            Spacer()
+                            Text(savedBills.isEmpty ? "Estimated" : "Calibrated")
+                                .font(.system(size: 11, weight: .bold))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(Color.white.opacity(0.18))
+                                .foregroundColor(.white)
+                                .clipShape(Capsule())
+                        }
+                        
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text(String(format: "%.0f", calibratedData.calibratedKwh))
+                                .font(.system(size: 52, weight: .bold))
+                                .foregroundColor(.white)
+                            
+                            Text("kWh")
+                                .font(.system(size: 22, weight: .regular))
+                                .foregroundColor(.white)
+                        }
+                        
+                        HStack {
+                            Text(savedBills.isEmpty ? "Based on monthly appliance profile" : "Calibrated to your \(String(format: "%.0f", calibratedData.totalBillKwh)) kWh bill")
+                                .font(.system(size: 13, weight: .regular))
+                                .foregroundColor(Color(red: 0.72, green: 0.92, blue: 0.82))
+                            Spacer()
+                            Text(String(format: "≈ LKR %.0f/mo", calibratedData.monthlyCostLkr))
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(.white)
+                        }
+                    }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(20)
                     .background(EnergyLensTheme.cardGradient)
@@ -86,7 +126,7 @@ public struct ApplianceDetailView: View {
                             
                             Spacer()
                             
-                            Text("40%")
+                            Text(String(format: "%.0f%%", calibratedData.percentage * 100))
                                 .font(.system(size: 15, weight: .bold))
                                 .foregroundColor(EnergyLensTheme.accentGreen)
                         }
@@ -100,7 +140,7 @@ public struct ApplianceDetailView: View {
                                 
                                 RoundedRectangle(cornerRadius: 3)
                                     .fill(EnergyLensTheme.accentGreen)
-                                    .frame(width: geo.size.width * 0.40, height: 6)
+                                    .frame(width: max(geo.size.width * CGFloat(calibratedData.percentage), 6), height: 6)
                             }
                         }
                         .frame(height: 6)
@@ -127,6 +167,10 @@ public struct ApplianceDetailView: View {
                         
                         // Info card
                         VStack(spacing: 12) {
+                            if let brand = appliance?.brand, !brand.isEmpty {
+                                profileRow(label: "Brand / Model", value: brand)
+                                Divider().background(EnergyLensTheme.fieldBorder)
+                            }
                             profileRow(label: "Nameplate power", value: "\(appliance?.powerW ?? 1200) W")
                             Divider().background(EnergyLensTheme.fieldBorder)
                             profileRow(label: "Daily usage", value: "\(String(format: "%.1f", appliance?.hoursPerDay ?? 6.0)) h/day")
@@ -138,6 +182,8 @@ public struct ApplianceDetailView: View {
                                 Divider().background(EnergyLensTheme.fieldBorder)
                                 profileRow(label: "Days per week", value: "\(appliance?.daysPerWeek ?? 1) days")
                             }
+                            Divider().background(EnergyLensTheme.fieldBorder)
+                            profileRow(label: "Theoretical Monthly", value: String(format: "%.1f kWh", appliance?.estimatedMonthlyKwh ?? 72.0))
                         }
                         .padding(18)
                         .background(Color.white)
@@ -148,26 +194,35 @@ public struct ApplianceDetailView: View {
                         )
                     }
                     
-//                    // Footnote
-//                    Text("72 kWh is calibrated to your bill and appliance profiles. It is not a measured reading or simply power × hours.")
-//                        .font(.system(size: 13, weight: .regular))
-//                        .foregroundColor(EnergyLensTheme.textSecondary)
-//                        .lineSpacing(2)
-//                    
-//                    // Callout
-//                    Text("Try reducing daily AC usage from 6 to 4 hours in the simulator.")
-//                        .font(.system(size: 14, weight: .medium))
-//                        .foregroundColor(Color(red: 0.10, green: 0.38, blue: 0.48))
-//                        .lineSpacing(2)
-//                        .padding(16)
-//                        .frame(maxWidth: .infinity, alignment: .leading)
-//                        .background(Color(red: 0.90, green: 0.96, blue: 0.98))
-//                        .cornerRadius(14)
-//                    
-//                    Spacer(minLength: 20)
+                    // Footnote
+                    Text("\(String(format: "%.0f", calibratedData.calibratedKwh)) kWh is calibrated to your bill and appliance profiles. It is not simply nameplate power × hours.")
+                        .font(.system(size: 13, weight: .regular))
+                        .foregroundColor(EnergyLensTheme.textSecondary)
+                        .lineSpacing(2)
+                    
+                    // Callout
+                    let currentHours = appliance?.hoursPerDay ?? 6.0
+                    let targetHours = max(1.0, currentHours - 2.0)
+                    let applianceName = appliance?.name ?? "Air Conditioner"
+                    Text("Try reducing daily \(applianceName) usage from \(String(format: "%.0f", currentHours)) to \(String(format: "%.0f", targetHours)) hours in the simulator.")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(Color(red: 0.10, green: 0.38, blue: 0.48))
+                        .lineSpacing(2)
+                        .padding(16)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color(red: 0.90, green: 0.96, blue: 0.98))
+                        .cornerRadius(14)
+                    
+                    Spacer(minLength: 20)
                     
                     // Open Simulator Button
                     GradientButton(title: "Open Energy Saving Simulator") {
+                        if let app = appliance {
+                            navState.selectedAppliance = app.name
+                            navState.selectedApplianceId = app.id
+                            navState.currentAcHours = app.hoursPerDay
+                            navState.simulationHours = targetHours
+                        }
                         navState.navigate(to: .savingsSimulator)
                     }
                     .padding(.bottom, 10)
@@ -213,15 +268,26 @@ public struct ApplianceDetailView: View {
     }
 
     private func loadAppliance() {
-        guard let id = applianceId else { return }
-        do {
-            let predicate = #Predicate<Appliance> { item in
-                item.id == id
+        if let id = applianceId ?? navState.selectedApplianceId {
+            do {
+                let predicate = #Predicate<Appliance> { item in
+                    item.id == id
+                }
+                let descriptor = FetchDescriptor<Appliance>(predicate: predicate)
+                if let found = try modelContext.fetch(descriptor).first {
+                    self.appliance = found
+                    return
+                }
+            } catch {
+                print("Failed to fetch appliance by ID: \(error)")
             }
-            let descriptor = FetchDescriptor<Appliance>(predicate: predicate)
-            self.appliance = try modelContext.fetch(descriptor).first
-        } catch {
-            print("Failed to fetch appliance by ID: \(error)")
+        }
+        
+        // Fallback: match by navState.selectedAppliance name
+        if let match = allAppliances.first(where: { $0.name.lowercased() == navState.selectedAppliance.lowercased() }) {
+            self.appliance = match
+        } else if let first = allAppliances.first {
+            self.appliance = first
         }
     }
     

@@ -1,16 +1,11 @@
-//
-//  AppliancesView.swift
-//  ios-final-coursework
-//
-//  Created by student5 on 2026-10-16.
-//
-
 import SwiftUI
+import SwiftData
 
 public struct AppliancesView: View {
     @EnvironmentObject var navState: AppNavigationState
     @Environment(\.modelContext) private var modelContext
-    @State private var savedAppliances: [Appliance] = []
+    @Query(sort: \Appliance.name) private var savedAppliances: [Appliance]
+    @Query(sort: \ElectricityBill.periodEnd, order: .reverse) private var savedBills: [ElectricityBill]
 
     public init() {}
 
@@ -38,21 +33,60 @@ public struct AppliancesView: View {
                     }
 
                     // Section: Household profiles
-                    Text("Household profiles")
-                        .font(.system(size: 19, weight: .bold))
-                        .foregroundColor(EnergyLensTheme.textPrimary)
+                    HStack {
+                        Text("Household profiles")
+                            .font(.system(size: 19, weight: .bold))
+                            .foregroundColor(EnergyLensTheme.textPrimary)
+                        
+                        Spacer()
+                        
+                        if savedAppliances.isEmpty {
+                            Button("Load Samples") {
+                                try? SwiftDataApplianceService.shared.seedDefaultHouseholdAppliances(context: modelContext)
+                            }
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(EnergyLensTheme.accentGreen)
+                        }
+                    }
 
                     VStack(spacing: 12) {
                         if savedAppliances.isEmpty {
-                            applianceItem(
-                                icon: "powerplug",
-                                iconBg: Color(red: 0.12, green: 0.52, blue: 0.65),
-                                name: "No saved appliances",
-                                specs: "Add your first appliance to begin"
-                            )
-                        } else {
-                            ForEach(savedAppliances) { appliance in
+                            VStack(spacing: 12) {
+                                applianceItem(
+                                    icon: "powerplug",
+                                    iconBg: Color(red: 0.12, green: 0.52, blue: 0.65),
+                                    name: "No saved appliances",
+                                    specs: "Add an appliance or load standard household samples",
+                                    kwhBadge: nil
+                                )
+                                
                                 Button(action: {
+                                    try? SwiftDataApplianceService.shared.seedDefaultHouseholdAppliances(context: modelContext)
+                                }) {
+                                    HStack {
+                                        Image(systemName: "sparkles")
+                                        Text("Load Standard Coursework Appliances")
+                                    }
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundColor(Color(red: 0.10, green: 0.38, blue: 0.42))
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 12)
+                                    .background(Color(red: 0.88, green: 0.95, blue: 0.97))
+                                    .cornerRadius(12)
+                                }
+                            }
+                        } else {
+                            let targetKwh = savedBills.first?.consumptionKwh
+                            ForEach(savedAppliances) { appliance in
+                                let cal = ApplianceCalibrationService.shared.calibrateSingleAppliance(
+                                    appliance: appliance,
+                                    allAppliances: savedAppliances,
+                                    targetBillKwh: targetKwh
+                                )
+                                let badgeText = "\(Int(round(cal.calibratedKwh))) kWh"
+                                
+                                Button(action: {
+                                    navState.selectedAppliance = appliance.name
                                     navState.selectedApplianceId = appliance.id
                                     navState.navigate(to: .applianceDetail)
                                 }) {
@@ -60,7 +94,8 @@ public struct AppliancesView: View {
                                         icon: applianceIcon(for: appliance.category ?? appliance.name),
                                         iconBg: applianceColor(for: appliance.category ?? appliance.name),
                                         name: appliance.name,
-                                        specs: specText(for: appliance)
+                                        specs: specText(for: appliance),
+                                        kwhBadge: badgeText
                                     )
                                 }
                             }
@@ -89,13 +124,6 @@ public struct AppliancesView: View {
             }
         }
         .background(Color.white.ignoresSafeArea())
-        .onAppear {
-            do {
-                savedAppliances = try SwiftDataApplianceService.shared.fetchAppliances(context: modelContext)
-            } catch {
-                savedAppliances = []
-            }
-        }
     }
 
     private func specText(for appliance: Appliance) -> String {
@@ -136,7 +164,7 @@ public struct AppliancesView: View {
     }
 
     @ViewBuilder
-    private func applianceItem(icon: String, iconBg: Color, name: String, specs: String) -> some View {
+    private func applianceItem(icon: String, iconBg: Color, name: String, specs: String, kwhBadge: String? = nil) -> some View {
         HStack(spacing: 14) {
             ZStack {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -159,6 +187,16 @@ public struct AppliancesView: View {
             }
 
             Spacer()
+
+            if let badge = kwhBadge {
+                Text(badge)
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundColor(EnergyLensTheme.accentGreen)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(EnergyLensTheme.mintHighlight)
+                    .clipShape(Capsule())
+            }
 
             Image(systemName: "chevron.right")
                 .font(.system(size: 14, weight: .medium))

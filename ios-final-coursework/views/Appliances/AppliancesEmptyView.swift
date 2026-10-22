@@ -6,9 +6,11 @@
 //
 
 import SwiftUI
+import SwiftData
 
 public struct AppliancesEmptyView: View {
     @EnvironmentObject var navState: AppNavigationState
+    @Environment(\.modelContext) private var modelContext
     
     public init() {}
     
@@ -89,7 +91,26 @@ public struct AppliancesEmptyView: View {
                             .stroke(Color(red: 0.82, green: 0.92, blue: 0.96), lineWidth: 1)
                     )
                     
-                    Spacer(minLength: 40)
+                    Spacer(minLength: 30)
+                    
+                    // Load Samples Button
+                    Button(action: {
+                        if (try? SwiftDataApplianceService.shared.seedDefaultHouseholdAppliances(context: modelContext)) != nil {
+                            navState.navigate(to: .appliances)
+                        }
+                    }) {
+                        HStack {
+                            Image(systemName: "sparkles")
+                            Text("Load Standard Coursework Appliances")
+                        }
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(Color(red: 0.10, green: 0.38, blue: 0.42))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(Color(red: 0.88, green: 0.95, blue: 0.97))
+                        .cornerRadius(14)
+                    }
+                    .padding(.bottom, 8)
                     
                     // Add Appliance Button
                     GradientButton(title: "Add Appliance") {

@@ -90,4 +90,44 @@ public final class SwiftDataApplianceService {
         context.delete(appliance)
         try context.save()
     }
+
+    /// Seeds standard household appliances matching Sri Lankan household profiles and coursework specifications
+    @discardableResult
+    public func seedDefaultHouseholdAppliances(context: ModelContext) throws -> [Appliance] {
+        let defaults: [(name: String, brand: String?, category: String, powerW: Int, qty: Int, hours: Double, mode: String, days: Int?)] = [
+            ("Air Conditioner", "Inverter AC", "Cooling", 1200, 1, 6.0, "All day", nil),
+            ("Refrigerator", "Double Door", "Refrigeration", 150, 1, 24.0, "All day", nil),
+            ("Ceiling Fans", "KDK", "Ventilation", 75, 3, 8.0, "All day", nil),
+            ("LED Lighting", "Philips", "Lighting", 15, 6, 5.0, "All day", nil),
+            ("Smart TV", "Samsung", "Entertainment", 100, 1, 4.0, "All day", nil),
+            ("Washing Machine", "LG", "Cleaning", 500, 1, 2.0, "Weekly", 3)
+        ]
+        
+        var created: [Appliance] = []
+        for def in defaults {
+            let app = Appliance(
+                name: def.name,
+                brand: def.brand,
+                category: def.category,
+                powerW: def.powerW,
+                quantity: def.qty,
+                hoursPerDay: def.hours,
+                usageMode: def.mode,
+                daysPerWeek: def.days
+            )
+            context.insert(app)
+            created.append(app)
+        }
+        
+        try context.save()
+        return created
+    }
+    
+    /// Seeds default appliances only if the database has none
+    public func seedIfNeeded(context: ModelContext) throws {
+        let existing = try fetchAppliances(context: context)
+        if existing.isEmpty {
+            try seedDefaultHouseholdAppliances(context: context)
+        }
+    }
 }

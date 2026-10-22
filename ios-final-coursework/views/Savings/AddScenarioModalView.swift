@@ -6,9 +6,11 @@
 //
 
 import SwiftUI
+import SwiftData
 
 public struct AddScenarioModalView: View {
     @EnvironmentObject var navState: AppNavigationState
+    @Environment(\.modelContext) private var modelContext
     @State private var selectedAppliance: String = "Air Conditioner"
     @State private var savingAdjustment: String = "Reduce hours per day"
     @State private var newUsageHours: Double = 4.0
@@ -58,6 +60,22 @@ public struct AddScenarioModalView: View {
                         Spacer()
                         
                         Button(action: {
+                            navState.selectedAppliance = selectedAppliance
+                            navState.simulationHours = newUsageHours
+                            
+                            // Save scenario record
+                            let scenario = SavingsScenario(
+                                scenarioTitle: savingAdjustment,
+                                applianceName: selectedAppliance,
+                                adjustmentType: savingAdjustment,
+                                originalHoursPerDay: navState.currentAcHours,
+                                targetHoursPerDay: newUsageHours,
+                                estimatedKwhSaved: max(0, (navState.currentAcHours - newUsageHours) * 12.0),
+                                estimatedLkrSaved: max(0, (navState.currentAcHours - newUsageHours) * 12.0 * 43.75)
+                            )
+                            modelContext.insert(scenario)
+                            try? modelContext.save()
+                            
                             navState.navigate(to: .savingsSimulator)
                         }) {
                             Text("Done")

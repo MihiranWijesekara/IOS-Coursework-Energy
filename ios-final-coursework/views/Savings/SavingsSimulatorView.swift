@@ -6,10 +6,53 @@
 //
 
 import SwiftUI
+import SwiftData
 
 public struct SavingsSimulatorView: View {
     @EnvironmentObject var navState: AppNavigationState
+    @Query(sort: \ElectricityBill.periodEnd, order: .reverse) private var savedBills: [ElectricityBill]
+    @Query(sort: \Appliance.name) private var savedAppliances: [Appliance]
+    
     @State private var dailyHours: Double = 4.0
+    
+    // Active simulated appliance
+    private var activeAppliance: Appliance? {
+        if let id = navState.selectedApplianceId {
+            return savedAppliances.first(where: { $0.id == id })
+        }
+        return savedAppliances.first(where: { $0.name.lowercased() == navState.selectedAppliance.lowercased() })
+    }
+    
+    private var baselineHours: Double {
+        return activeAppliance?.hoursPerDay ?? navState.currentAcHours
+    }
+    
+    private var simulationMetrics: (kwhSaved: Double, lkrSaved: Double, oldKwh: Double, newKwh: Double) {
+        let latestBill = savedBills.first
+        let billKwh = latestBill?.consumptionKwh ?? 180.0
+        let tariffRate = ApplianceCalibrationService.shared.effectiveTariffRate(bill: latestBill)
+        
+        let oldCalibratedKwh: Double
+        if let app = activeAppliance {
+            let item = ApplianceCalibrationService.shared.calibrateSingleAppliance(
+                appliance: app,
+                allAppliances: savedAppliances,
+                targetBillKwh: billKwh
+            )
+            oldCalibratedKwh = item.calibratedKwh
+        } else {
+            // Default 40% of 180 = 72 kWh
+            oldCalibratedKwh = billKwh * 0.40
+        }
+        
+        let safeBaseHours = max(baselineHours, 1.0)
+        let kwhPerHour = oldCalibratedKwh / safeBaseHours
+        let newCalibratedKwh = kwhPerHour * dailyHours
+        let savedKwh = max(0.0, oldCalibratedKwh - newCalibratedKwh)
+        let savedLkr = savedKwh * tariffRate
+        
+        return (savedKwh, savedLkr, oldCalibratedKwh, newCalibratedKwh)
+    }
     
     public init() {}
     
@@ -40,37 +83,44 @@ public struct SavingsSimulatorView: View {
                             .lineSpacing(2)
                     }
                     
-                    // Selected Appliance Row
-                    HStack(spacing: 14) {
-                        Image(systemName: "air.conditioner.horizontal")
-                            .font(.system(size: 20))
-                            .foregroundColor(Color(red: 0.10, green: 0.38, blue: 0.45))
-                            .frame(width: 24)
-                        
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Air Conditioner")
-                                .font(.system(size: 16, weight: .bold))
-                                .foregroundColor(EnergyLensTheme.textPrimary)
+                    // Selected Appliance Row (Tapping opens appliance list or detail)
+                    Button(action: {
+                        navState.navigate(to: .appliances)
+                    }) {
+                        HStack(spacing: 14) {
+                            let appName = activeAppliance?.name ?? navState.selectedAppliance
+                            let iconName = ApplianceCalibrationService.shared.iconForCategory(activeAppliance?.category ?? appName)
+                            Image(systemName: iconName)
+                                .font(.system(size: 20))
+                                .foregroundColor(Color(red: 0.10, green: 0.38, blue: 0.45))
+                                .frame(width: 24)
                             
-                            Text("Current · 6 h/day")
-                                .font(.system(size: 13, weight: .regular))
-                                .foregroundColor(EnergyLensTheme.textSecondary)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(appName)
+                                    .font(.system(size: 16, weight: .bold))
+                                    .foregroundColor(EnergyLensTheme.textPrimary)
+                                
+                                Text("Current · \(String(format: "%.0f", baselineHours)) h/day")
+                                    .font(.system(size: 13, weight: .regular))
+                                    .foregroundColor(EnergyLensTheme.textSecondary)
+                            }
+                            
+                            Spacer()
+                            
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(EnergyLensTheme.textMuted)
                         }
-                        
-                        Spacer()
-                        
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(EnergyLensTheme.textMuted)
+                        .padding(.vertical, 16)
+                        .padding(.horizontal, 16)
+                        .background(Color.white)
+                        .cornerRadius(16)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16)
+                                .stroke(EnergyLensTheme.borderSubtle, lineWidth: 1)
+                        )
                     }
-                    .padding(.vertical, 16)
-                    .padding(.horizontal, 16)
-                    .background(Color.white)
-                    .cornerRadius(16)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16)
-                            .stroke(EnergyLensTheme.borderSubtle, lineWidth: 1)
-                    )
+                    .buttonStyle(PlainButtonStyle())
                     
                     // New Daily Usage Controls Card
                     VStack(spacing: 12) {
@@ -102,7 +152,7 @@ public struct SavingsSimulatorView: View {
                             Spacer()
                             
                             Button(action: {
-                                if dailyHours < 12 { dailyHours += 1 }
+                                if dailyHours < 24 { dailyHours += 1 }
                             }) {
                                 Image(systemName: "plus")
                                     .font(.system(size: 16, weight: .bold))
@@ -114,7 +164,7 @@ public struct SavingsSimulatorView: View {
                         }
                         
                         // Slider
-                        Slider(value: $dailyHours, in: 0...12, step: 1)
+                        Slider(value: $dailyHours, in: 0...max(12, baselineHours + 2), step: 1)
                             .tint(EnergyLensTheme.accentGreen)
                             .padding(.top, 4)
                         
@@ -123,7 +173,7 @@ public struct SavingsSimulatorView: View {
                                 .font(.system(size: 13, weight: .regular))
                                 .foregroundColor(EnergyLensTheme.textSecondary)
                             Spacer()
-                            Text("12 h")
+                            Text("\(Int(max(12, baselineHours + 2))) h")
                                 .font(.system(size: 13, weight: .regular))
                                 .foregroundColor(EnergyLensTheme.textSecondary)
                         }
@@ -143,7 +193,7 @@ public struct SavingsSimulatorView: View {
                             .foregroundColor(Color(red: 0.72, green: 0.92, blue: 0.82))
                         
                         HStack(alignment: .firstTextBaseline, spacing: 6) {
-                            Text("24")
+                            Text(String(format: "%.0f", simulationMetrics.kwhSaved))
                                 .font(.system(size: 42, weight: .bold))
                                 .foregroundColor(.white)
                             
@@ -152,11 +202,12 @@ public struct SavingsSimulatorView: View {
                                 .foregroundColor(.white)
                         }
                         
-                        Text("≈ LKR 1,050/month")
+                        Text(String(format: "≈ LKR %.0f/month", simulationMetrics.lkrSaved))
                             .font(.system(size: 22, weight: .bold))
                             .foregroundColor(.white)
                         
-                        Text("Calibrated AC contribution: 72 → 48 kWh. Estimates use your bill and profile, not nameplate power × hours.")
+                        let targetName = activeAppliance?.name ?? navState.selectedAppliance
+                        Text("Calibrated \(targetName) contribution: \(Int(round(simulationMetrics.oldKwh))) → \(Int(round(simulationMetrics.newKwh))) kWh. Estimates use your bill and profile, not nameplate power × hours.")
                             .font(.system(size: 13, weight: .regular))
                             .foregroundColor(Color(red: 0.72, green: 0.92, blue: 0.82))
                             .lineSpacing(2)
@@ -206,5 +257,10 @@ public struct SavingsSimulatorView: View {
             }
         }
         .background(EnergyLensTheme.screenBackground.ignoresSafeArea())
+        .onAppear {
+            if navState.simulationHours > 0 {
+                dailyHours = navState.simulationHours
+            }
+        }
     }
 }

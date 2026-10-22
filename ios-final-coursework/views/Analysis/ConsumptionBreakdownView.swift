@@ -6,9 +6,37 @@
 //
 
 import SwiftUI
+import SwiftData
 
 public struct ConsumptionBreakdownView: View {
     @EnvironmentObject var navState: AppNavigationState
+    @Query(sort: \ElectricityBill.periodEnd, order: .reverse) private var savedBills: [ElectricityBill]
+    @Query(sort: \Appliance.name) private var savedAppliances: [Appliance]
+    
+    // Computed calibrated values
+    private var calibrationResult: (items: [CalibratedApplianceItem], totalKwh: Double, highest: CalibratedApplianceItem?) {
+        let billKwh = savedBills.first?.consumptionKwh
+        if !savedAppliances.isEmpty {
+            let res = ApplianceCalibrationService.shared.calibrateAppliances(
+                appliances: savedAppliances,
+                targetBillKwh: billKwh
+            )
+            return (res.items, res.totalKwh, res.highestConsumer)
+        } else {
+            let total = billKwh ?? 180.0
+            let items = ApplianceCalibrationService.defaultCalibratedItems(totalBillKwh: total)
+            return (items, total, items.first)
+        }
+    }
+    
+    private var headerSubtitle: String {
+        if let latest = savedBills.first {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "MMMM yyyy"
+            return "\(formatter.string(from: latest.periodEnd)) · Total consumption"
+        }
+        return "August 2025 · Total consumption"
+    }
     
     public init() {}
     
@@ -32,12 +60,12 @@ public struct ConsumptionBreakdownView: View {
                     
                     // Header Total Card
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("August 2025 · Total consumption")
+                        Text(headerSubtitle)
                             .font(.system(size: 13, weight: .medium))
                             .foregroundColor(Color(red: 0.72, green: 0.92, blue: 0.82))
                         
                         HStack(alignment: .firstTextBaseline, spacing: 6) {
-                            Text("180")
+                            Text(String(format: "%.0f", calibrationResult.totalKwh))
                                 .font(.system(size: 48, weight: .bold))
                                 .foregroundColor(.white)
                             
@@ -61,7 +89,7 @@ public struct ConsumptionBreakdownView: View {
                             
                             Spacer()
                             
-                            Text("Bill calibrated")
+                            Text(savedBills.isEmpty ? "Estimated" : "Bill calibrated")
                                 .font(.system(size: 12, weight: .medium))
                                 .foregroundColor(Color(red: 0.12, green: 0.50, blue: 0.32))
                                 .padding(.horizontal, 10)
@@ -71,13 +99,24 @@ public struct ConsumptionBreakdownView: View {
                         }
                         .padding(.bottom, 2)
                         
-                        // Breakdown rows
-                        breakdownRow(name: "Air Conditioner", value: "72 kWh · 40%", percent: 0.40, color: Color(red: 0.12, green: 0.55, blue: 0.32))
-                        breakdownRow(name: "Refrigerator", value: "45 kWh · 25%", percent: 0.25, color: Color(red: 0.95, green: 0.60, blue: 0.10))
-                        breakdownRow(name: "Fans", value: "21.6 kWh · 12%", percent: 0.12, color: Color(red: 0.55, green: 0.35, blue: 0.85))
-                        breakdownRow(name: "Lights", value: "14.4 kWh · 8%", percent: 0.08, color: Color(red: 0.90, green: 0.30, blue: 0.55))
-                        breakdownRow(name: "Others", value: "14.4 kWh · 8%", percent: 0.08, color: Color(red: 0.25, green: 0.50, blue: 0.90))
-                        breakdownRow(name: "TV", value: "12.6 kWh · 7%", percent: 0.07, color: Color(red: 0.95, green: 0.45, blue: 0.20))
+                        // Dynamic breakdown rows
+                        ForEach(calibrationResult.items) { item in
+                            let kwhText = String(format: "%.1f kWh", item.calibratedKwh)
+                            let percentText = "\(Int(round(item.percentage * 100)))%"
+                            Button(action: {
+                                navState.selectedAppliance = item.name
+                                navState.selectedApplianceId = item.id
+                                navState.navigate(to: .applianceDetail)
+                            }) {
+                                breakdownRow(
+                                    name: item.name,
+                                    value: "\(kwhText) · \(percentText)",
+                                    percent: CGFloat(item.percentage),
+                                    color: item.color
+                                )
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
                     }
                     .padding(18)
                     .background(Color.white)
@@ -88,45 +127,49 @@ public struct ConsumptionBreakdownView: View {
                     )
                     
                     // Footnote
-                    Text("Estimates calibrated to your bill and appliance profiles. Not measured live data.")
+                    Text(savedBills.isEmpty ? "Estimates based on household appliances. Import a bill to calibrate." : "Estimates calibrated proportionally to match your \(String(format: "%.0f", calibrationResult.totalKwh)) kWh electricity bill.")
                         .font(.system(size: 13, weight: .regular))
                         .foregroundColor(EnergyLensTheme.textSecondary)
                         .lineSpacing(2)
                     
-                    // Air Conditioner details card
-                    Button(action: {
-                        navState.navigate(to: .applianceDetail)
-                    }) {
-                        HStack(spacing: 14) {
-                            Image(systemName: "air.conditioner.horizontal")
-                                .font(.system(size: 22))
-                                .foregroundColor(Color(red: 0.10, green: 0.38, blue: 0.42))
-                                .frame(width: 26)
-                            
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text("Air Conditioner details")
-                                    .font(.system(size: 16, weight: .bold))
-                                    .foregroundColor(EnergyLensTheme.textPrimary)
+                    // Highest consumer details card
+                    if let highest = calibrationResult.highest {
+                        Button(action: {
+                            navState.selectedAppliance = highest.name
+                            navState.selectedApplianceId = highest.id
+                            navState.navigate(to: .applianceDetail)
+                        }) {
+                            HStack(spacing: 14) {
+                                Image(systemName: highest.icon)
+                                    .font(.system(size: 22))
+                                    .foregroundColor(Color(red: 0.10, green: 0.38, blue: 0.42))
+                                    .frame(width: 26)
                                 
-                                Text("Largest estimated contribution")
-                                    .font(.system(size: 13, weight: .regular))
-                                    .foregroundColor(EnergyLensTheme.textSecondary)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text("\(highest.name) details")
+                                        .font(.system(size: 16, weight: .bold))
+                                        .foregroundColor(EnergyLensTheme.textPrimary)
+                                    
+                                    Text("Largest estimated contribution (\(Int(round(highest.percentage * 100)))%)")
+                                        .font(.system(size: 13, weight: .regular))
+                                        .foregroundColor(EnergyLensTheme.textSecondary)
+                                }
+                                
+                                Spacer()
+                                
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundColor(EnergyLensTheme.textMuted)
                             }
-                            
-                            Spacer()
-                            
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(EnergyLensTheme.textMuted)
+                            .padding(.vertical, 16)
+                            .padding(.horizontal, 16)
+                            .background(Color.white)
+                            .cornerRadius(16)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 16)
+                                    .stroke(EnergyLensTheme.borderSubtle, lineWidth: 1)
+                            )
                         }
-                        .padding(.vertical, 16)
-                        .padding(.horizontal, 16)
-                        .background(Color.white)
-                        .cornerRadius(16)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 16)
-                                .stroke(EnergyLensTheme.borderSubtle, lineWidth: 1)
-                        )
                     }
                     
                     Spacer(minLength: 20)
