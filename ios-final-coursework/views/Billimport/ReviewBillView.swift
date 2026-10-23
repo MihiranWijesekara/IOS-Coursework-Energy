@@ -460,9 +460,33 @@ public struct ReviewBillView: View {
         }
         .background(Color.white.ignoresSafeArea())
         .onAppear {
-            let extracted = navState.latestExtractedBill
-            if !extracted.rawText.isEmpty {
-                syncFromState(extracted)
+            if !navState.currentBillDraft.rawExtractedText.isEmpty {
+                let d = navState.currentBillDraft
+                provider = d.providerName.isEmpty ? "CEB" : d.providerName
+                accountNumber = d.accountNumber
+                tariffCategory = d.tariffCategory
+                customerName = d.customerName
+                readingDate = d.readingDate
+                billingPeriod = d.billingMonth
+                dueDate = d.dueDate
+                previousReading = d.previousReading.isEmpty ? "" : "\(d.previousReading) kWh"
+                currentReading = d.currentReading.isEmpty ? "" : "\(d.currentReading) kWh"
+                consumption = d.totalKWh.isEmpty ? "" : "\(d.totalKWh) kWh"
+                currentCharge = d.electricityCharge.isEmpty ? "" : "Rs. \(d.electricityCharge)"
+                taxesAndLevies = d.sscLevy.isEmpty ? "" : "Rs. \(d.sscLevy)"
+                monthlyBill = d.monthlyBill.isEmpty ? "" : "Rs. \(d.monthlyBill)"
+                previousBalance = d.previousBalance.isEmpty ? "" : "Rs. \(d.previousBalance)"
+                payments = d.payments.isEmpty ? "" : "Rs. \(d.payments)"
+                outstandingBalance = d.outstandingBalance.isEmpty ? "" : "Rs. \(d.outstandingBalance)"
+                totalAmountPayable = d.totalAmount.isEmpty ? (d.monthlyBill.isEmpty ? "" : "Rs. \(d.monthlyBill)") : "Rs. \(d.totalAmount)"
+                rawText = d.rawExtractedText
+                validationMessages = d.validationWarnings.map { "\($0.title): \($0.message)" }
+                isMathConsistent = !d.validationWarnings.contains { $0.severity == .error }
+            } else {
+                let extracted = navState.latestExtractedBill
+                if !extracted.rawText.isEmpty {
+                    syncFromState(extracted)
+                }
             }
         }
         .sheet(isPresented: $isShowingEditModal) {

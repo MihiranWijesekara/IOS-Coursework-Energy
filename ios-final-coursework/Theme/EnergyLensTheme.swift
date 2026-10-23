@@ -81,4 +81,14 @@ public enum EnergyLensTheme {
     
     public static let mintHighlight = Color(red: 0.90, green: 0.98, blue: 0.93)   // #E6F9ED Soft Mint
     public static let logoSkyBlue = Color(red: 0.75, green: 0.89, blue: 0.99)     // #C0E3FD
+    
+    // PDF Palette & Recognition UI Tokens
+    public static let background = Color(red: 0.05, green: 0.08, blue: 0.12)      // #0D141F Dark canvas
+    public static let cyanAccent = Color(red: 0.0, green: 0.82, blue: 0.78)        // #00D1C7 Cyan
+    public static let EmeraldGreen = Color(red: 0.13, green: 0.77, blue: 0.48)    // #21C47A
+    public static let AlertOrange = Color(red: 0.98, green: 0.58, blue: 0.24)     // #FA943D
+    public static let DangerRed = Color(red: 0.94, green: 0.33, blue: 0.31)       // #F0544F
+    public static let RoyalBlue = Color(red: 0.25, green: 0.45, blue: 0.95)       // #4073F2
+    public static let textTertiary = Color(red: 0.55, green: 0.60, blue: 0.68)    // #8C99AD
 }
+

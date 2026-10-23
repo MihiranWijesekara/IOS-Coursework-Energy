@@ -18,6 +18,7 @@ struct ios_final_courseworkApp: App {
             User.self,
             Appliance.self,
             ElectricityBill.self,
+            SavedBill.self,
             Prediction.self,
             WeatherData.self,
             SavingsScenario.self

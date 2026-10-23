@@ -1,4 +1,4 @@
-﻿//
+//
 //  SelectBillImageView.swift
 //  ios-final-coursework
 //
@@ -7,12 +7,14 @@
 
 import SwiftUI
 import PhotosUI
+import UniformTypeIdentifiers
 
 public struct SelectBillImageView: View {
     @EnvironmentObject var navState: AppNavigationState
     @Environment(\.modelContext) private var modelContext
     @State private var selectedPhotoItem: PhotosPickerItem? = nil
     @State private var showCameraPicker = false
+    @State private var showFileImporter = false
     @State private var inputImage: UIImage? = nil
     @State private var isProcessingOCR = false
     @State private var errorMessage = ""
@@ -109,6 +111,39 @@ public struct SelectBillImageView: View {
                                 await processSelectedImage(nil, imageOverride: inputImage)
                             }
                         }
+                    }
+
+                    // PDF / Document Importer Button (PDF Specification)
+                    Button(action: {
+                        showFileImporter = true
+                    }) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "doc.richtext")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundColor(Color(red: 0.12, green: 0.30, blue: 0.45))
+
+                            Text("Import PDF / Bill from Files")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundColor(Color(red: 0.12, green: 0.30, blue: 0.45))
+
+                            Spacer()
+
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundColor(Color(red: 0.12, green: 0.30, blue: 0.45).opacity(0.8))
+                        }
+                        .padding(.vertical, 16)
+                        .padding(.horizontal, 18)
+                        .background(Color(red: 0.90, green: 0.93, blue: 0.97))
+                        .cornerRadius(14)
+                    }
+                    .disabled(isProcessingOCR)
+                    .fileImporter(
+                        isPresented: $showFileImporter,
+                        allowedContentTypes: [.pdf, .image, .png, .jpeg],
+                        allowsMultipleSelection: false
+                    ) { result in
+                        handleFileImport(result)
                     }
 
                     // Preview of Selected Image OR Reference Template
@@ -272,28 +307,74 @@ public struct SelectBillImageView: View {
             inputImage = image
             navState.selectedBillImage = image
 
-            // 1. Run Apple Vision Text Recognition
-            let rawText = try await BillTextRecognitionService.recognizeText(from: image)
-
-            // 2. Parse into ExtractedBillData structure
-            let parsed = ExtractedBillData.parse(from: rawText)
+            // 1. Run complete Apple Vision OCR + Sri Lankan Parser & Validator
+            let draft = try await BillTextRecognitionService.shared.extractBillData(from: image)
+            let parsed = ExtractedBillData(from: draft)
             extractedBillData = parsed
+            navState.currentBillDraft = draft
             navState.latestExtractedBill = parsed
             navState.extractedBillData = parsed
             isProcessingOCR = false
 
-            // 3. Check for unreadable/blank image
-            if parsed.rawText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            // 2. Check for empty/unreadable text
+            if draft.rawExtractedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                navState.lastOCRWarningMessage = "No readable text was detected in the selected image."
                 navState.navigate(to: .billScanError)
                 return
             }
 
-            // 4. Save to shared navState and navigate to Review Bill
+            // 3. Save to shared navState and navigate to Review Bill
             navState.navigate(to: .reviewBill)
         } catch {
             isProcessingOCR = false
             errorMessage = "OCR failed: \(error.localizedDescription)"
+            navState.lastOCRWarningMessage = error.localizedDescription
             navState.navigate(to: .billScanError)
+        }
+    }
+
+    private func handleFileImport(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            isProcessingOCR = true
+            Task {
+                do {
+                    if url.pathExtension.lowercased() == "pdf" {
+                        let (rendered, draft) = try await BillTextRecognitionService.shared.extractBillData(fromPDF: url)
+                        await MainActor.run {
+                            self.inputImage = rendered
+                            self.navState.selectedBillImage = rendered
+                            self.navState.currentBillDraft = draft
+                            let parsed = ExtractedBillData(from: draft)
+                            self.extractedBillData = parsed
+                            self.navState.latestExtractedBill = parsed
+                            self.navState.extractedBillData = parsed
+                            self.isProcessingOCR = false
+                            self.navState.navigate(to: .reviewBill)
+                        }
+                    } else {
+                        let accessing = url.startAccessingSecurityScopedResource()
+                        defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+                        let data = try Data(contentsOf: url)
+                        if let image = UIImage(data: data) {
+                            await processSelectedImage(nil, imageOverride: image)
+                        } else {
+                            await MainActor.run {
+                                self.errorMessage = "The selected file could not be decoded as an image."
+                                self.isProcessingOCR = false
+                            }
+                        }
+                    }
+                } catch {
+                    await MainActor.run {
+                        self.errorMessage = error.localizedDescription
+                        self.isProcessingOCR = false
+                    }
+                }
+            }
+        case .failure(let error):
+            errorMessage = "File selection cancelled: \(error.localizedDescription)"
         }
     }
 }

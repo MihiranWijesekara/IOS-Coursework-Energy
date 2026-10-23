@@ -118,10 +118,17 @@ public final class AppNavigationState: ObservableObject {
     @Published public var extractedBillData: ExtractedBillData = .sample
     @Published public var latestExtractedBill: ExtractedBillData = .sample
     @Published public var selectedBillId: UUID? = nil
+    @Published public var currentBillDraft: BillExtractionDraft = BillExtractionDraft()
+    @Published public var lastOCRWarningMessage: String? = nil
+
+    private var screenHistory: [AppScreen] = []
 
     public init() {}
     
     public func navigate(to screen: AppScreen) {
+        if currentScreen != screen {
+            screenHistory.append(currentScreen)
+        }
         currentScreen = screen
         if screen == .home || screen == .homeSkeleton {
             selectedTab = .home
@@ -133,4 +140,15 @@ public final class AppNavigationState: ObservableObject {
             selectedTab = .profile
         }
     }
+
+    public func navigateBack() {
+        if let previous = screenHistory.popLast() {
+            currentScreen = previous
+        } else {
+            currentScreen = .home
+        }
+    }
 }
+
+public typealias NavigationModel = AppNavigationState
+

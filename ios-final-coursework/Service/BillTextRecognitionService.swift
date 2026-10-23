@@ -1,45 +1,979 @@
-﻿//
+//
 //  BillTextRecognitionService.swift
 //  ios-final-coursework
 //
-//  Production Vision OCR & Intelligent Sri Lankan Electricity Bill Parsing Engine
-//  Supports CEB e-Bills, CEB Invoices, and LECO physical statements.
+//  Complete Vision OCR, Intelligent Sri Lankan Bill Parser & Validator Engine
+//  Supports CEB e-Bills (SMS/WhatsApp), CEB Printed Invoices, and LECO Statements.
 //
 
 import Foundation
 import UIKit
 import Vision
+import PDFKit
+import ImageIO
 
-// MARK: - Extracted Bill Data Model
-public struct ExtractedBillData: Equatable {
-    public var provider: String                  // "CEB", "LECO", or "Unknown"
-    public var accountNumber: String              // e.g. "5410264908"
-    public var tariffCategory: String?            // e.g. "D1"
-    public var customerName: String?              // e.g. "R RANJITH"
-    public var customerAddress: String?           // Billing address if present
-    public var readingDate: String?               // e.g. "2026-09-30"
-    public var billingPeriod: String              // e.g. "01 Sep – 30 Sep 2026"
-    public var dueDate: String?                   // e.g. "2026-09-17"
-    public var previousReading: String            // e.g. "10,678 kWh"
-    public var currentReading: String             // e.g. "10,756 kWh"
-    public var consumptionKwh: String             // e.g. "78 kWh"
-    public var currentCharge: String?             // e.g. "Rs. 1,588.00"
-    public var fixedCharges: String?              // e.g. "Rs. 540.00"
-    public var taxesAndLevies: String?            // e.g. "Rs. 40.72" (SSC Levy)
-    public var monthlyBill: String?               // e.g. "Rs. 1,628.72"
-    public var previousBalance: String?           // e.g. "Rs. 2,987.07" (B/F)
-    public var payments: String?                  // e.g. "Rs. 2,200.00"
-    public var outstandingBalance: String?        // e.g. "Rs. 787.07"
-    public var totalAmountPayable: String         // e.g. "Rs. 2,415.79"
-    public var ebillLink: String?                 // e.g. "https://ebill.edl.lk/..."
-    public var rawText: String                    // Complete detected text
-    
-    // Mathematical & Verification Metadata
+// MARK: - 1. Recognized Text Line Model
+public struct RecognizedTextLine: Equatable, Sendable {
+    public let text: String
+    public let confidence: Float
+    public let boundingBox: CGRect
+
+    public init(text: String, confidence: Float, boundingBox: CGRect) {
+        self.text = text
+        self.confidence = confidence
+        self.boundingBox = boundingBox
+    }
+}
+
+// MARK: - 2. OCR Errors
+public enum BillOCRError: LocalizedError, Equatable {
+    case invalidImage
+    case imageTooSmall
+    case unsupportedPDF
+    case noTextDetected
+    case cancelled
+    case recognitionFailed(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .invalidImage:
+            return "The selected file could not be decoded as a valid image."
+        case .imageTooSmall:
+            return "The image resolution is too low for reliable OCR. Please use a clearer screenshot or photo."
+        case .unsupportedPDF:
+            return "The selected PDF document is encrypted, empty, or could not be rendered."
+        case .noTextDetected:
+            return "No readable electricity bill text was detected in the image."
+        case .cancelled:
+            return "Bill text recognition was cancelled."
+        case .recognitionFailed(let reason):
+            return "Text recognition failed: \(reason)"
+        }
+    }
+}
+
+// MARK: - 3. Real Vision OCR Service
+public final class ElectricityBillOCRService: Sendable {
+    public init() {}
+
+    /// Renders a PDF document URL into a composite or first-page UIImage for Vision OCR.
+    public func renderImage(fromPDF url: URL) throws -> UIImage {
+        let accessing = url.startAccessingSecurityScopedResource()
+        defer {
+            if accessing { url.stopAccessingSecurityScopedResource() }
+        }
+
+        guard let document = PDFDocument(url: url), document.pageCount > 0 else {
+            throw BillOCRError.unsupportedPDF
+        }
+
+        let maxPages = min(document.pageCount, 2)
+        var pageImages: [UIImage] = []
+        let scale: CGFloat = 2.5
+
+        for pageIndex in 0..<maxPages {
+            guard let page = document.page(at: pageIndex) else { continue }
+            let pageRect = page.bounds(for: .mediaBox)
+            let targetSize = CGSize(width: pageRect.width * scale, height: pageRect.height * scale)
+            let renderer = UIGraphicsImageRenderer(size: targetSize)
+            let img = renderer.image { ctx in
+                UIColor.white.setFill()
+                ctx.fill(CGRect(origin: .zero, size: targetSize))
+                ctx.cgContext.translateBy(x: 0, y: targetSize.height)
+                ctx.cgContext.scaleBy(x: scale, y: -scale)
+                page.draw(with: .mediaBox, to: ctx.cgContext)
+            }
+            pageImages.append(img)
+        }
+
+        guard !pageImages.isEmpty else {
+            throw BillOCRError.unsupportedPDF
+        }
+
+        if pageImages.count == 1 {
+            return pageImages[0]
+        }
+
+        let totalHeight = pageImages.reduce(0) { $0 + $1.size.height }
+        let maxWidth = pageImages.map(\.size.width).max() ?? 1000
+        let combinedSize = CGSize(width: maxWidth, height: totalHeight)
+        let combinedRenderer = UIGraphicsImageRenderer(size: combinedSize)
+        return combinedRenderer.image { _ in
+            var currentY: CGFloat = 0
+            for img in pageImages {
+                img.draw(in: CGRect(x: 0, y: currentY, width: img.size.width, height: img.size.height))
+                currentY += img.size.height
+            }
+        }
+    }
+
+    /// Performs programmatic OCR using Apple's Vision framework (`VNRecognizeTextRequest`).
+    public func recognizeText(from image: UIImage) async throws -> [RecognizedTextLine] {
+        try Task.checkCancellation()
+
+        guard let cgImage = image.cgImage else {
+            throw BillOCRError.invalidImage
+        }
+
+        if cgImage.width < 120 || cgImage.height < 120 {
+            throw BillOCRError.imageTooSmall
+        }
+
+        let cgOrientation = Self.cgImageOrientation(from: image.imageOrientation)
+
+        return try await Task.detached(priority: .userInitiated) {
+            try Task.checkCancellation()
+
+            let request = VNRecognizeTextRequest()
+            request.recognitionLevel = .accurate
+            request.usesLanguageCorrection = false
+            request.recognitionLanguages = ["en-US", "en-GB"]
+
+            let handler = VNImageRequestHandler(
+                cgImage: cgImage,
+                orientation: cgOrientation,
+                options: [:]
+            )
+
+            do {
+                try handler.perform([request])
+            } catch {
+                throw BillOCRError.recognitionFailed(error.localizedDescription)
+            }
+
+            try Task.checkCancellation()
+
+            let observations = request.results ?? []
+            let rawFragments: [RecognizedTextLine] = observations.compactMap { observation in
+                guard let candidate = observation.topCandidates(1).first else {
+                    return nil
+                }
+                let trimmed = candidate.string.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return nil }
+                return RecognizedTextLine(
+                    text: trimmed,
+                    confidence: candidate.confidence,
+                    boundingBox: observation.boundingBox
+                )
+            }
+
+            guard !rawFragments.isEmpty else {
+                throw BillOCRError.noTextDetected
+            }
+
+            return Self.groupAndOrderLines(rawFragments)
+        }.value
+    }
+
+    /// Groups horizontally aligned text fragments on the same visual row and orders rows top-to-bottom.
+    public static func groupAndOrderLines(_ fragments: [RecognizedTextLine]) -> [RecognizedTextLine] {
+        // Vision coordinates have origin (0,0) at bottom-left, so higher midY is higher on screen.
+        let sortedByY = fragments.sorted { lhs, rhs in
+            if abs(lhs.boundingBox.midY - rhs.boundingBox.midY) > 0.014 {
+                return lhs.boundingBox.midY > rhs.boundingBox.midY
+            }
+            return lhs.boundingBox.minX < rhs.boundingBox.minX
+        }
+
+        var mergedRows: [[RecognizedTextLine]] = []
+        for fragment in sortedByY {
+            if var lastRow = mergedRows.last,
+               let firstInRow = lastRow.first,
+               abs(firstInRow.boundingBox.midY - fragment.boundingBox.midY) <= 0.014 {
+                lastRow.append(fragment)
+                mergedRows[mergedRows.count - 1] = lastRow
+            } else {
+                mergedRows.append([fragment])
+            }
+        }
+
+        return mergedRows.map { row in
+            let orderedRow = row.sorted { $0.boundingBox.minX < $1.boundingBox.minX }
+            let combinedText = orderedRow.map(\.text).joined(separator: " ")
+            let avgConfidence = orderedRow.map(\.confidence).reduce(0, +) / Float(orderedRow.count)
+            let unionBox = orderedRow.dropFirst().reduce(orderedRow[0].boundingBox) { $0.union($1.boundingBox) }
+            return RecognizedTextLine(text: combinedText, confidence: avgConfidence, boundingBox: unionBox)
+        }
+    }
+
+    public static func cgImageOrientation(from uiOrientation: UIImage.Orientation) -> CGImagePropertyOrientation {
+        switch uiOrientation {
+        case .up: return .up
+        case .down: return .down
+        case .left: return .left
+        case .right: return .right
+        case .upMirrored: return .upMirrored
+        case .downMirrored: return .downMirrored
+        case .leftMirrored: return .leftMirrored
+        case .rightMirrored: return .rightMirrored
+        @unknown default: return .up
+        }
+    }
+}
+
+// MARK: - 4. Dynamic Electricity Bill Parser
+public final class ElectricityBillParser: @unchecked Sendable {
+    private let validator = ElectricityBillValidator()
+
+    public init() {}
+
+    public func parse(lines: [RecognizedTextLine]) -> ExtractedElectricityBill {
+        let filteredLines = filterMessagingChrome(from: lines)
+        let rawText = lines.map(\.text).joined(separator: "\n")
+        let format = detectFormat(from: filteredLines)
+
+        var bill = ExtractedElectricityBill()
+        bill.formatType = format
+        bill.rawOCRText = rawText
+
+        switch format {
+        case .cebEBill:
+            bill.provider = "Ceylon Electricity Board (CEB)"
+            parseCEBeBill(lines: filteredLines, into: &bill)
+        case .cebPrinted:
+            bill.provider = "Ceylon Electricity Board (CEB)"
+            parsePrintedOrStandardBill(lines: filteredLines, into: &bill)
+        case .lecoBill:
+            bill.provider = "Lanka Electricity Company (LECO)"
+            parsePrintedOrStandardBill(lines: filteredLines, into: &bill)
+        case .standard, .unknown:
+            parsePrintedOrStandardBill(lines: filteredLines, into: &bill)
+        }
+
+        // Compute aggregate confidence from recognized fields or OCR lines
+        if !bill.fieldMetadata.isEmpty {
+            let total = bill.fieldMetadata.values.map(\.confidence).reduce(0, +)
+            bill.extractionConfidence = total / Float(bill.fieldMetadata.count)
+        } else if !filteredLines.isEmpty {
+            let total = filteredLines.map(\.confidence).reduce(0, +)
+            bill.extractionConfidence = (total / Float(filteredLines.count)) * 0.5
+        }
+
+        bill.validationWarnings = validator.validate(bill)
+        return bill
+    }
+
+    public func parse(rawText: String) -> ExtractedElectricityBill {
+        let syntheticLines = rawText
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .enumerated()
+            .map { idx, line in
+                RecognizedTextLine(
+                    text: line,
+                    confidence: 0.95,
+                    boundingBox: CGRect(x: 0, y: Double(1000 - idx * 20) / 1000.0, width: 1, height: 0.015)
+                )
+            }
+        return parse(lines: syntheticLines)
+    }
+
+    // MARK: - Format Detection
+    private func detectFormat(from lines: [RecognizedTextLine]) -> BillFormatType {
+        let joined = lines.map(\.text).joined(separator: "\n").lowercased()
+        let cebEBillSignals = [
+            "ceb e-bill", "ebill.edl.lk", "a/c no", "b/f", "ssc levy", "sscl levy", "monthly bill", "view e-bill"
+        ]
+        let cebSignalCount = cebEBillSignals.filter { joined.contains($0) }.count
+        if cebSignalCount >= 3 {
+            return .cebEBill
+        }
+        if joined.contains("lanka electricity company") || joined.contains("leco") {
+            return .lecoBill
+        }
+        if joined.contains("ceylon electricity board") || joined.contains("ceb") {
+            return .cebPrinted
+        }
+        if joined.contains("kwh") || joined.contains("electricity") || joined.contains("meter") || joined.contains("account") {
+            return .standard
+        }
+        return .unknown
+    }
+
+    // Filter out WhatsApp / SMS status bar and forwarding chrome
+    private func filterMessagingChrome(from lines: [RecognizedTextLine]) -> [RecognizedTextLine] {
+        lines.filter { line in
+            let lower = line.text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if lower == "forwarded" || lower == "↪ forwarded" { return false }
+            if lower == "open this link to view your electricity bill." { return false }
+            // Ignore standalone message timestamps like "00:38" or "12:45 PM"
+            if lower.range(of: #"^\d{1,2}:\d{2}\s*(?:am|pm)?$"#, options: .regularExpression) != nil {
+                return false
+            }
+            return true
+        }
+    }
+
+    // MARK: - CEB e-Bill SMS / WhatsApp Parser
+    private func parseCEBeBill(lines: [RecognizedTextLine], into bill: inout ExtractedElectricityBill) {
+        for (index, item) in lines.enumerated() {
+            let line = item.text.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            // 1. A/C No: 5410264908 (D1)
+            if line.range(of: #"(?:A\s*/?\s*C\s*No|Account\s*(?:No|Number))"#, options: [.regularExpression, .caseInsensitive]) != nil {
+                if let rawAcct = firstCapture(in: line, pattern: #"(?:A\s*/?\s*C\s*No|Account\s*(?:No|Number))\s*[:\-]?\s*([0-9OIlSB]{8,14})"#, group: 1) {
+                    let (cleanedAcct, wasCleaned) = normalizeNumericToken(rawAcct)
+                    bill.accountNumber = cleanedAcct
+                    bill.fieldMetadata["accountNumber"] = FieldExtractionMetadata(
+                        fieldName: "Account Number",
+                        rawLine: line,
+                        confidence: item.confidence,
+                        wasOCRCleaned: wasCleaned
+                    )
+                }
+
+                if let tariff = firstCapture(in: line, pattern: #"\(([A-Za-z0-9\s\-]{1,8})\)"#, group: 1) {
+                    bill.tariffCode = tariff.trimmingCharacters(in: .whitespaces)
+                    bill.fieldMetadata["tariffCode"] = FieldExtractionMetadata(
+                        fieldName: "Tariff Category",
+                        rawLine: line,
+                        confidence: item.confidence,
+                        wasOCRCleaned: false
+                    )
+                }
+
+                // Customer Name on the immediately following line
+                if index + 1 < lines.count {
+                    let nextItem = lines[index + 1]
+                    let candidateName = nextItem.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if isLikelyCustomerName(candidateName) {
+                        bill.customerName = candidateName
+                        bill.fieldMetadata["customerName"] = FieldExtractionMetadata(
+                            fieldName: "Customer Name",
+                            rawLine: candidateName,
+                            confidence: nextItem.confidence,
+                            wasOCRCleaned: false
+                        )
+                    }
+                }
+                continue
+            }
+
+            // 2. B/F: Rs. 2,987.07
+            if line.range(of: #"^(?:B\s*/\s*F|Brought\s*Forward)\b"#, options: [.regularExpression, .caseInsensitive]) != nil {
+                if let (amount, cleaned) = extractDecimalCurrency(from: line) {
+                    bill.broughtForward = amount
+                    bill.fieldMetadata["broughtForward"] = FieldExtractionMetadata(
+                        fieldName: "Brought Forward",
+                        rawLine: line,
+                        confidence: item.confidence,
+                        wasOCRCleaned: cleaned
+                    )
+                }
+                continue
+            }
+
+            // 3. Payments: Rs. 2,200.00
+            if line.range(of: #"^Payments?\b"#, options: [.regularExpression, .caseInsensitive]) != nil {
+                if let (amount, cleaned) = extractDecimalCurrency(from: line) {
+                    bill.payments = amount
+                    bill.fieldMetadata["payments"] = FieldExtractionMetadata(
+                        fieldName: "Payments",
+                        rawLine: line,
+                        confidence: item.confidence,
+                        wasOCRCleaned: cleaned
+                    )
+                }
+                continue
+            }
+
+            // 4. Outstanding: Rs. 787.07 by 2026-09-17
+            if line.range(of: #"^Outstanding\b"#, options: [.regularExpression, .caseInsensitive]) != nil {
+                let amountSegment = line.replacingOccurrences(
+                    of: #"\bby\s+[0-9OIlSB]{4}[\-/][0-9OIlSB]{2}[\-/][0-9OIlSB]{2}.*$"#,
+                    with: "",
+                    options: [.regularExpression, .caseInsensitive]
+                )
+                if let (amount, cleaned) = extractDecimalCurrency(from: amountSegment) {
+                    bill.outstandingBalance = amount
+                    bill.fieldMetadata["outstandingBalance"] = FieldExtractionMetadata(
+                        fieldName: "Outstanding Balance",
+                        rawLine: line,
+                        confidence: item.confidence,
+                        wasOCRCleaned: cleaned
+                    )
+                }
+                if let rawDate = firstCapture(in: line, pattern: #"\bby\s+([0-9OIlSB]{4}[\-/][0-9OIlSB]{2}[\-/][0-9OIlSB]{2})"#, group: 1) {
+                    let (cleanDate, _) = normalizeDateToken(rawDate)
+                    bill.outstandingDueDateRaw = cleanDate
+                    bill.outstandingDueDate = BillExtractionDraft.parseFlexibleDate(cleanDate)
+                }
+                continue
+            }
+
+            // 5. Reading Date: 2026-09-30 (457)
+            if line.range(of: #"^Reading\s*Date\b"#, options: [.regularExpression, .caseInsensitive]) != nil {
+                if let rawDate = firstCapture(in: line, pattern: #"([0-9OIlSB]{4}[\-/][0-9OIlSB]{2}[\-/][0-9OIlSB]{2})"#, group: 1) {
+                    let (cleanDate, wasCleaned) = normalizeDateToken(rawDate)
+                    bill.readingDateRaw = cleanDate
+                    bill.readingDate = BillExtractionDraft.parseFlexibleDate(cleanDate)
+                    bill.fieldMetadata["readingDate"] = FieldExtractionMetadata(
+                        fieldName: "Reading Date",
+                        rawLine: line,
+                        confidence: item.confidence,
+                        wasOCRCleaned: wasCleaned
+                    )
+                }
+                if let suffix = firstCapture(in: line, pattern: #"\(([A-Za-z0-9]+)\)"#, group: 1) {
+                    bill.readingDateSuffix = suffix
+                }
+                continue
+            }
+
+            // 6. Reading: 10756 - 10678 = 78 Units
+            if line.range(of: #"^Reading\s*[:\-]"#, options: [.regularExpression, .caseInsensitive]) != nil {
+                let pattern = #"Reading\s*[:\-]?\s*([0-9OIlSB]+)\s*[\-–—]\s*([0-9OIlSB]+)\s*=\s*([0-9OIlSB]+)\s*(?:Units?|kWh)?"#
+                let groups = allCaptures(in: line, pattern: pattern)
+                if groups.count >= 4 {
+                    let (r1Str, c1) = normalizeNumericToken(groups[1])
+                    let (r2Str, c2) = normalizeNumericToken(groups[2])
+                    let (uStr, c3) = normalizeNumericToken(groups[3])
+                    if let r1 = Int(r1Str), let r2 = Int(r2Str) {
+                        bill.currentReading = r1
+                        bill.previousReading = r2
+                    }
+                    if let u = Int(uStr) {
+                        bill.consumptionUnits = u
+                    }
+                    let wasCleaned = c1 || c2 || c3
+                    bill.fieldMetadata["reading"] = FieldExtractionMetadata(
+                        fieldName: "Meter Reading & Consumption",
+                        rawLine: line,
+                        confidence: item.confidence,
+                        wasOCRCleaned: wasCleaned
+                    )
+                }
+                continue
+            }
+
+            // 7. Charge: Rs. 1,588.00
+            if line.range(of: #"^(?:Electricity\s+|Energy\s+)?Charge\b"#, options: [.regularExpression, .caseInsensitive]) != nil {
+                if let (amount, cleaned) = extractDecimalCurrency(from: line) {
+                    bill.energyCharge = amount
+                    bill.fieldMetadata["energyCharge"] = FieldExtractionMetadata(
+                        fieldName: "Energy Charge",
+                        rawLine: line,
+                        confidence: item.confidence,
+                        wasOCRCleaned: cleaned
+                    )
+                }
+                continue
+            }
+
+            // 8. SSC Levy / SSCL Levy: Rs. 40.72
+            if line.range(of: #"^(?:SSC|SSCL)\s*Levy\b"#, options: [.regularExpression, .caseInsensitive]) != nil {
+                if let (amount, cleaned) = extractDecimalCurrency(from: line) {
+                    bill.levyAmount = amount
+                    bill.fieldMetadata["levyAmount"] = FieldExtractionMetadata(
+                        fieldName: "SSCL / SSC Levy",
+                        rawLine: line,
+                        confidence: item.confidence,
+                        wasOCRCleaned: cleaned
+                    )
+                }
+                continue
+            }
+
+            // 9. Monthly Bill: Rs. 1,628.72
+            if line.range(of: #"^Monthly\s*Bill\b"#, options: [.regularExpression, .caseInsensitive]) != nil {
+                if let (amount, cleaned) = extractDecimalCurrency(from: line) {
+                    bill.monthlyBill = amount
+                    bill.fieldMetadata["monthlyBill"] = FieldExtractionMetadata(
+                        fieldName: "Monthly Bill",
+                        rawLine: line,
+                        confidence: item.confidence,
+                        wasOCRCleaned: cleaned
+                    )
+                }
+                continue
+            }
+
+            // 10. Total Due: Rs. 2,415.79
+            if line.range(of: #"^Total\s*Due\b"#, options: [.regularExpression, .caseInsensitive]) != nil {
+                if let (amount, cleaned) = extractDecimalCurrency(from: line) {
+                    bill.totalDue = amount
+                    bill.fieldMetadata["totalDue"] = FieldExtractionMetadata(
+                        fieldName: "Total Due",
+                        rawLine: line,
+                        confidence: item.confidence,
+                        wasOCRCleaned: cleaned
+                    )
+                }
+                continue
+            }
+
+            // 11. View e-Bill URL
+            if line.lowercased().hasPrefix("http://") || line.lowercased().hasPrefix("https://") {
+                if let urlPart = line.components(separatedBy: .whitespaces).first {
+                    bill.billURL = urlPart
+                }
+            }
+        }
+    }
+
+    // MARK: - Printed CEB / LECO / Standard Bill Parser
+    private func parsePrintedOrStandardBill(lines: [RecognizedTextLine], into bill: inout ExtractedElectricityBill) {
+        for (index, item) in lines.enumerated() {
+            let line = item.text.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            // Provider fallback if still nil
+            if bill.provider == nil {
+                if line.localizedCaseInsensitiveContains("Ceylon Electricity Board") || line.localizedCaseInsensitiveContains("CEB") {
+                    bill.provider = "Ceylon Electricity Board (CEB)"
+                } else if line.localizedCaseInsensitiveContains("Lanka Electricity Company") || line.localizedCaseInsensitiveContains("LECO") {
+                    bill.provider = "Lanka Electricity Company (LECO)"
+                } else if line.localizedCaseInsensitiveContains("Electric") || line.localizedCaseInsensitiveContains("Power") || line.localizedCaseInsensitiveContains("Energy") {
+                    bill.provider = line
+                }
+            }
+
+            // Currency detection
+            if line.contains("$") {
+                bill.currency = "USD"
+            } else if line.localizedCaseInsensitiveContains("Rs") || line.localizedCaseInsensitiveContains("LKR") {
+                bill.currency = "LKR"
+            }
+
+            // Account Number
+            if bill.accountNumber == nil,
+               let acct = firstCapture(in: line, pattern: #"(?:Account\s*(?:No|Number|#)?|A\s*/?\s*C\s*No)\s*[:\-]?\s*([A-Z0-9\-]{6,16})"#, group: 1) {
+                bill.accountNumber = acct
+                bill.fieldMetadata["accountNumber"] = FieldExtractionMetadata(
+                    fieldName: "Account Number",
+                    rawLine: line,
+                    confidence: item.confidence,
+                    wasOCRCleaned: false
+                )
+            }
+
+            // Tariff Category
+            if bill.tariffCode == nil,
+               let tariff = firstCapture(in: line, pattern: #"Tariff\s*(?:Category|Code)?\s*[:\-]?\s*([A-Z0-9\-]{1,6})"#, group: 1) {
+                bill.tariffCode = tariff
+            }
+
+            // Customer Name
+            if bill.customerName == nil,
+               let name = firstCapture(in: line, pattern: #"(?:Customer\s*Name|Consumer\s*Name|Name)\s*[:\-]?\s*([A-Za-z\s\.]{3,40})"#, group: 1) {
+                bill.customerName = name.trimmingCharacters(in: .whitespaces)
+            }
+
+            // Reading equation if present on printed bill
+            if line.range(of: #"Reading\s*[:\-]?\s*[0-9OIlSB]+\s*[\-–—]\s*[0-9OIlSB]+\s*="#, options: [.regularExpression, .caseInsensitive]) != nil {
+                let groups = allCaptures(in: line, pattern: #"([0-9OIlSB]+)\s*[\-–—]\s*([0-9OIlSB]+)\s*=\s*([0-9OIlSB]+)"#)
+                if groups.count >= 4 {
+                    bill.currentReading = Int(normalizeNumericToken(groups[1]).0)
+                    bill.previousReading = Int(normalizeNumericToken(groups[2]).0)
+                    bill.consumptionUnits = Int(normalizeNumericToken(groups[3]).0)
+                }
+            }
+
+            // Explicit Previous & Current Meter Readings
+            if bill.previousReading == nil,
+               let prev = firstCapture(in: line, pattern: #"Previous\s*(?:Meter\s*)?Reading\s*[:\-]?\s*([0-9OIlSB]{3,8})"#, group: 1) {
+                bill.previousReading = Int(normalizeNumericToken(prev).0)
+            }
+            if bill.currentReading == nil,
+               let curr = firstCapture(in: line, pattern: #"(?:Current|Present)\s*(?:Meter\s*)?Reading\s*[:\-]?\s*([0-9OIlSB]{3,8})"#, group: 1) {
+                bill.currentReading = Int(normalizeNumericToken(curr).0)
+            }
+
+            // Consumption (kWh / Units)
+            if bill.consumptionUnits == nil {
+                if let unitsStr = firstCapture(in: line, pattern: #"(?:Total\s*(?:kWh|Units)|Consumption|Units\s*Consumed|Units\s*Used)\s*[:\-]?\s*([0-9OIlSB]{1,6})\s*(?:kWh|Units)?"#, group: 1) {
+                    bill.consumptionUnits = Int(normalizeNumericToken(unitsStr).0)
+                    bill.fieldMetadata["consumptionUnits"] = FieldExtractionMetadata(
+                        fieldName: "Consumption Units",
+                        rawLine: line,
+                        confidence: item.confidence,
+                        wasOCRCleaned: false
+                    )
+                } else if let inlineKWh = firstCapture(in: line, pattern: #"\b([0-9]{1,6})\s*kWh\b"#, group: 1) {
+                    bill.consumptionUnits = Int(inlineKWh)
+                }
+            }
+
+            // Brought Forward / Previous Balance
+            if bill.broughtForward == nil,
+               line.range(of: #"(?:Brought\s*Forward|Previous\s*Balance|B/F|Arrears)"#, options: [.regularExpression, .caseInsensitive]) != nil,
+               let (amt, cl) = extractDecimalCurrency(from: line) {
+                bill.broughtForward = amt
+                bill.fieldMetadata["broughtForward"] = FieldExtractionMetadata(fieldName: "Brought Forward", rawLine: line, confidence: item.confidence, wasOCRCleaned: cl)
+            }
+
+            // Payments
+            if bill.payments == nil,
+               line.range(of: #"(?:Payments?\s*Received|Last\s*Payment|Payments?)"#, options: [.regularExpression, .caseInsensitive]) != nil,
+               let (amt, cl) = extractDecimalCurrency(from: line) {
+                bill.payments = amt
+                bill.fieldMetadata["payments"] = FieldExtractionMetadata(fieldName: "Payments", rawLine: line, confidence: item.confidence, wasOCRCleaned: cl)
+            }
+
+            // Outstanding Balance
+            if bill.outstandingBalance == nil,
+               line.range(of: #"Outstanding\s*(?:Balance|Amount)?"#, options: [.regularExpression, .caseInsensitive]) != nil,
+               let (amt, cl) = extractDecimalCurrency(from: line) {
+                bill.outstandingBalance = amt
+                bill.fieldMetadata["outstandingBalance"] = FieldExtractionMetadata(fieldName: "Outstanding Balance", rawLine: line, confidence: item.confidence, wasOCRCleaned: cl)
+            }
+
+            // Energy Charge
+            if bill.energyCharge == nil,
+               line.range(of: #"(?:Energy\s*Charge|Electricity\s*Charge|Usage\s*Charge|^Charge\b)"#, options: [.regularExpression, .caseInsensitive]) != nil,
+               let (amt, cl) = extractDecimalCurrency(from: line) {
+                bill.energyCharge = amt
+                bill.fieldMetadata["energyCharge"] = FieldExtractionMetadata(fieldName: "Energy Charge", rawLine: line, confidence: item.confidence, wasOCRCleaned: cl)
+            }
+
+            // Levies / Taxes
+            if bill.levyAmount == nil,
+               line.range(of: #"(?:SSC\s*Levy|SSCL\s*Levy|Tax\s*&\s*Levy|Levy)"#, options: [.regularExpression, .caseInsensitive]) != nil,
+               let (amt, cl) = extractDecimalCurrency(from: line) {
+                bill.levyAmount = amt
+                bill.fieldMetadata["levyAmount"] = FieldExtractionMetadata(fieldName: "Levies", rawLine: line, confidence: item.confidence, wasOCRCleaned: cl)
+            }
+
+            // Monthly Bill
+            if bill.monthlyBill == nil,
+               line.range(of: #"(?:Monthly\s*Bill|Current\s*Month\s*Charges|Total\s*Current\s*Bill)"#, options: [.regularExpression, .caseInsensitive]) != nil,
+               let (amt, cl) = extractDecimalCurrency(from: line) {
+                bill.monthlyBill = amt
+                bill.fieldMetadata["monthlyBill"] = FieldExtractionMetadata(fieldName: "Monthly Bill", rawLine: line, confidence: item.confidence, wasOCRCleaned: cl)
+            }
+
+            // Total Due
+            if bill.totalDue == nil,
+               line.range(of: #"(?:Total\s*Due|Total\s*Amount\s*Due|Amount\s*Payable|Total\s*Payable|Total\s*Amount)"#, options: [.regularExpression, .caseInsensitive]) != nil {
+                if let (amt, cl) = extractDecimalCurrency(from: line) {
+                    bill.totalDue = amt
+                    bill.fieldMetadata["totalDue"] = FieldExtractionMetadata(fieldName: "Total Due", rawLine: line, confidence: item.confidence, wasOCRCleaned: cl)
+                } else if index + 1 < lines.count, let (nextAmt, cl) = extractDecimalCurrency(from: lines[index + 1].text) {
+                    bill.totalDue = nextAmt
+                    bill.fieldMetadata["totalDue"] = FieldExtractionMetadata(fieldName: "Total Due", rawLine: lines[index + 1].text, confidence: lines[index + 1].confidence, wasOCRCleaned: cl)
+                }
+            }
+
+            // Reading Date / Billing Date
+            if bill.readingDateRaw == nil,
+               let dateStr = firstCapture(in: line, pattern: #"(?:Reading\s*Date|Bill\s*Date|Billing\s*Date)\s*[:\-]?\s*([0-9]{4}[\-/][0-9]{2}[\-/][0-9]{2}|[0-9]{2}[\-/][0-9]{2}[\-/][0-9]{4})"#, group: 1) {
+                bill.readingDateRaw = dateStr
+                bill.readingDate = BillExtractionDraft.parseFlexibleDate(dateStr)
+            }
+
+            // Payment Due Date
+            if bill.paymentDueDateRaw == nil,
+               let dueStr = firstCapture(in: line, pattern: #"(?:Due\s*Date|Payment\s*Due)\s*[:\-]?\s*([0-9]{4}[\-/][0-9]{2}[\-/][0-9]{2}|[0-9]{2}[\-/][0-9]{2}[\-/][0-9]{4}|[A-Za-z]{3,9}\s+\d{1,2},?\s+\d{4})"#, group: 1) {
+                bill.paymentDueDateRaw = dueStr
+                bill.paymentDueDate = BillExtractionDraft.parseFlexibleDate(dueStr)
+            }
+        }
+    }
+
+    // MARK: - Context-Aware OCR Character Disambiguation & Helpers
+    public func isLikelyCustomerName(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count >= 3 else { return false }
+        let forbiddenPrefixes = [
+            "a/c", "account", "b/f", "payment", "outstanding", "reading",
+            "charge", "ssc", "monthly", "total", "view", "http", "ebill", "ceylon"
+        ]
+        let lower = trimmed.lowercased()
+        if forbiddenPrefixes.contains(where: { lower.hasPrefix($0) || lower.contains("rs.") }) {
+            return false
+        }
+        let hasLetters = trimmed.range(of: #"[A-Za-z]{2,}"#, options: .regularExpression) != nil
+        let hasDigits = trimmed.range(of: #"\d"#, options: .regularExpression) != nil
+        return hasLetters && !hasDigits
+    }
+
+    /// Corrects common OCR confusions (O->0, I/l->1, S->5, B->8) ONLY within isolated numeric/currency tokens.
+    public func normalizeNumericToken(_ raw: String) -> (String, Bool) {
+        var result = ""
+        var changed = false
+        for ch in raw {
+            switch ch {
+            case "O", "o":
+                result.append("0"); changed = true
+            case "I", "l", "|":
+                result.append("1"); changed = true
+            case "S", "s":
+                result.append("5"); changed = true
+            case "B":
+                result.append("8"); changed = true
+            default:
+                result.append(ch)
+            }
+        }
+        return (result, changed)
+    }
+
+    public func normalizeDateToken(_ raw: String) -> (String, Bool) {
+        let (cleaned, changed) = normalizeNumericToken(raw)
+        return (cleaned.replacingOccurrences(of: "/", with: "-"), changed)
+    }
+
+    public func extractDecimalCurrency(from line: String) -> (Decimal, Bool)? {
+        let targetSlice: String
+        if let colonRange = line.range(of: ":") {
+            targetSlice = String(line[colonRange.upperBound...])
+        } else {
+            targetSlice = line
+        }
+        let pattern = #"(?:Rs\.?|LKR|\$|£)?\s*([0-9OIlSB]{1,3}(?:,[0-9OIlSB]{3})+|[0-9OIlSB]+)\.[0-9OIlSB]{2}"#
+        guard let matchedToken = firstCapture(in: targetSlice, pattern: pattern, group: 0) else {
+            return nil
+        }
+        let strippedPrefix = matchedToken
+            .replacingOccurrences(of: "Rs.", with: "", options: .caseInsensitive)
+            .replacingOccurrences(of: "Rs", with: "", options: .caseInsensitive)
+            .replacingOccurrences(of: "LKR", with: "", options: .caseInsensitive)
+            .replacingOccurrences(of: "$", with: "")
+            .replacingOccurrences(of: "£", with: "")
+            .replacingOccurrences(of: ",", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let (normalized, wasCleaned) = normalizeNumericToken(strippedPrefix)
+        guard let decimalValue = Decimal(string: normalized, locale: Locale(identifier: "en_US_POSIX")) else {
+            return nil
+        }
+        return (decimalValue, wasCleaned)
+    }
+
+    public func firstCapture(in text: String, pattern: String, group: Int) -> String? {
+        let captures = allCaptures(in: text, pattern: pattern)
+        guard captures.indices.contains(group) else { return nil }
+        return captures[group]
+    }
+
+    public func allCaptures(in text: String, pattern: String) -> [String] {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return []
+        }
+        let nsRange = NSRange(text.startIndex..<text.endIndex, in: text)
+        guard let match = regex.firstMatch(in: text, options: [], range: nsRange) else {
+            return []
+        }
+        return (0..<match.numberOfRanges).compactMap { idx in
+            let range = match.range(at: idx)
+            guard range.location != NSNotFound, let swiftRange = Range(range, in: text) else {
+                return nil
+            }
+            return String(text[swiftRange])
+        }
+    }
+}
+
+// MARK: - 5. Decimal-Safe Financial & Meter Reading Validator
+public final class ElectricityBillValidator: Sendable {
+    public init() {}
+
+    public func validate(_ bill: ExtractedElectricityBill) -> [BillValidationWarning] {
+        var warnings: [BillValidationWarning] = []
+
+        // 1. Required Identifying Fields Check
+        if bill.accountNumber == nil || bill.accountNumber?.isEmpty == true {
+            warnings.append(BillValidationWarning(
+                fieldKey: "accountNumber",
+                severity: .warning,
+                title: "Missing Account Number",
+                message: "Account number was not recognized. Please enter or verify it before saving.",
+                expectedValue: nil,
+                actualValue: nil
+            ))
+        }
+
+        if bill.readingDate == nil && (bill.readingDateRaw == nil || bill.readingDateRaw?.isEmpty == true) {
+            warnings.append(BillValidationWarning(
+                fieldKey: "readingDate",
+                severity: .warning,
+                title: "Missing Reading Date",
+                message: "Reading date could not be recognized. Please enter the billing/reading date.",
+                expectedValue: nil,
+                actualValue: nil
+            ))
+        }
+
+        if bill.consumptionUnits == nil {
+            warnings.append(BillValidationWarning(
+                fieldKey: "consumptionUnits",
+                severity: .warning,
+                title: "Missing Consumption (kWh)",
+                message: "Electricity consumption units were not detected.",
+                expectedValue: nil,
+                actualValue: nil
+            ))
+        }
+
+        if bill.totalDue == nil && bill.monthlyBill == nil {
+            warnings.append(BillValidationWarning(
+                fieldKey: "totalDue",
+                severity: .error,
+                title: "Missing Bill Amount",
+                message: "Neither Total Due nor Monthly Bill was recognized. Please enter the bill amount.",
+                expectedValue: nil,
+                actualValue: nil
+            ))
+        }
+
+        // 2. Meter Reading Reconciliation: Current - Previous == Consumption
+        if let current = bill.currentReading, let previous = bill.previousReading {
+            if current < previous {
+                warnings.append(BillValidationWarning(
+                    fieldKey: "reading",
+                    severity: .error,
+                    title: "Inconsistent Meter Readings",
+                    message: "Current meter reading (\(current)) is lower than previous reading (\(previous)).",
+                    expectedValue: ">= \(previous)",
+                    actualValue: "\(current)"
+                ))
+            } else {
+                let calculatedUnits = current - previous
+                if let extractedUnits = bill.consumptionUnits, extractedUnits != calculatedUnits {
+                    warnings.append(BillValidationWarning(
+                        fieldKey: "consumptionUnits",
+                        severity: .warning,
+                        title: "Meter Reading Discrepancy",
+                        message: "Reading difference (\(current) - \(previous) = \(calculatedUnits) Units) does not match extracted consumption (\(extractedUnits) Units).",
+                        expectedValue: "\(calculatedUnits)",
+                        actualValue: "\(extractedUnits)"
+                    ))
+                }
+            }
+        }
+
+        // 3. Balance Reconciliation: Brought Forward - Payments == Outstanding Balance
+        if let bf = bill.broughtForward, let pay = bill.payments, let out = bill.outstandingBalance {
+            let expectedOutstanding = bf - pay
+            if expectedOutstanding != out {
+                warnings.append(BillValidationWarning(
+                    fieldKey: "outstandingBalance",
+                    severity: .warning,
+                    title: "Outstanding Balance Discrepancy",
+                    message: "B/F (\(BillExtractionDraft.formatDecimal(bf))) - Payments (\(BillExtractionDraft.formatDecimal(pay))) = \(BillExtractionDraft.formatDecimal(expectedOutstanding)), but Outstanding is \(BillExtractionDraft.formatDecimal(out)).",
+                    expectedValue: BillExtractionDraft.formatDecimal(expectedOutstanding),
+                    actualValue: BillExtractionDraft.formatDecimal(out)
+                ))
+            }
+        }
+
+        // 4. Monthly Bill Reconciliation: Energy Charge + Levy == Monthly Bill
+        if let charge = bill.energyCharge, let levy = bill.levyAmount, let monthly = bill.monthlyBill {
+            let expectedMonthly = charge + levy
+            if expectedMonthly != monthly {
+                warnings.append(BillValidationWarning(
+                    fieldKey: "monthlyBill",
+                    severity: .warning,
+                    title: "Monthly Bill Discrepancy",
+                    message: "Charge (\(BillExtractionDraft.formatDecimal(charge))) + Levy (\(BillExtractionDraft.formatDecimal(levy))) = \(BillExtractionDraft.formatDecimal(expectedMonthly)), but Monthly Bill is \(BillExtractionDraft.formatDecimal(monthly)).",
+                    expectedValue: BillExtractionDraft.formatDecimal(expectedMonthly),
+                    actualValue: BillExtractionDraft.formatDecimal(monthly)
+                ))
+            }
+        }
+
+        // 5. Total Due Reconciliation: Outstanding + Monthly Bill == Total Due
+        if let out = bill.outstandingBalance, let monthly = bill.monthlyBill, let total = bill.totalDue {
+            let expectedTotal = out + monthly
+            if expectedTotal != total {
+                warnings.append(BillValidationWarning(
+                    fieldKey: "totalDue",
+                    severity: .warning,
+                    title: "Total Due Discrepancy",
+                    message: "Outstanding (\(BillExtractionDraft.formatDecimal(out))) + Monthly Bill (\(BillExtractionDraft.formatDecimal(monthly))) = \(BillExtractionDraft.formatDecimal(expectedTotal)), but Total Due is \(BillExtractionDraft.formatDecimal(total)).",
+                    expectedValue: BillExtractionDraft.formatDecimal(expectedTotal),
+                    actualValue: BillExtractionDraft.formatDecimal(total)
+                ))
+            }
+        }
+
+        // 6. Low OCR Confidence Field Warnings
+        for (key, meta) in bill.fieldMetadata where meta.isLowConfidence {
+            warnings.append(BillValidationWarning(
+                fieldKey: key,
+                severity: .info,
+                title: "Verify \(meta.fieldName)",
+                message: meta.wasOCRCleaned
+                    ? "OCR disambiguation was applied to '\(meta.rawLine)'. Please confirm this value."
+                    : "Low OCR confidence (\(Int(meta.confidence * 100))%) for \(meta.fieldName). Please verify.",
+                expectedValue: nil,
+                actualValue: nil
+            ))
+        }
+
+        return warnings
+    }
+}
+
+// MARK: - 6. Facade Service Integrating OCR, Parser, and Validator
+public final class BillTextRecognitionService: @unchecked Sendable {
+    public static let shared = BillTextRecognitionService()
+
+    public let ocrService: ElectricityBillOCRService
+    public let parser: ElectricityBillParser
+    public let validator: ElectricityBillValidator
+
+    public init(
+        ocrService: ElectricityBillOCRService = ElectricityBillOCRService(),
+        parser: ElectricityBillParser = ElectricityBillParser(),
+        validator: ElectricityBillValidator = ElectricityBillValidator()
+    ) {
+        self.ocrService = ocrService
+        self.parser = parser
+        self.validator = validator
+    }
+
+    public func extractBillData(from image: UIImage) async throws -> BillExtractionDraft {
+        let recognizedLines = try await ocrService.recognizeText(from: image)
+        let extractedBill = parser.parse(lines: recognizedLines)
+        return BillExtractionDraft(from: extractedBill)
+    }
+
+    public func extractBillData(fromPDF url: URL) async throws -> (UIImage, BillExtractionDraft) {
+        let renderedImage = try ocrService.renderImage(fromPDF: url)
+        let draft = try await extractBillData(from: renderedImage)
+        return (renderedImage, draft)
+    }
+
+    public func parseRecognizedText(_ text: String) -> BillExtractionDraft {
+        let extractedBill = parser.parse(rawText: text)
+        return BillExtractionDraft(from: extractedBill)
+    }
+
+    /// Backward-compatibility helper for raw OCR string recognition
+    public static func recognizeText(from image: UIImage) async throws -> String {
+        let lines = try await shared.ocrService.recognizeText(from: image)
+        return lines.map(\.text).joined(separator: "\n")
+    }
+}
+
+// MARK: - Legacy / UI Bridge: ExtractedBillData
+public struct ExtractedBillData: Equatable, Sendable {
+    public var provider: String
+    public var accountNumber: String
+    public var tariffCategory: String?
+    public var customerName: String?
+    public var customerAddress: String?
+    public var readingDate: String?
+    public var billingPeriod: String
+    public var dueDate: String?
+    public var previousReading: String
+    public var currentReading: String
+    public var consumptionKwh: String
+    public var currentCharge: String?
+    public var fixedCharges: String?
+    public var taxesAndLevies: String?
+    public var monthlyBill: String?
+    public var previousBalance: String?
+    public var payments: String?
+    public var outstandingBalance: String?
+    public var totalAmountPayable: String
+    public var ebillLink: String?
+    public var rawText: String
+
     public var isMathConsistent: Bool
     public var validationMessages: [String]
-    public var confidenceScore: Double            // 0.0 to 1.0
+    public var confidenceScore: Double
 
-    // Backward-compatibility alias for views expecting billAmount
     public var billAmount: String {
         get {
             if !totalAmountPayable.isEmpty {
@@ -106,7 +1040,38 @@ public struct ExtractedBillData: Equatable {
         self.confidenceScore = confidenceScore
     }
 
-    // Default sample for previews and mock states
+    public init(from draft: BillExtractionDraft) {
+        let hasErrors = draft.validationWarnings.contains { $0.severity == .error }
+        let msgs = draft.validationWarnings.map { "\($0.title): \($0.message)" }
+
+        self.init(
+            provider: draft.providerName.isEmpty ? "CEB" : draft.providerName,
+            accountNumber: draft.accountNumber,
+            tariffCategory: draft.tariffCategory.isEmpty ? nil : draft.tariffCategory,
+            customerName: draft.customerName.isEmpty ? nil : draft.customerName,
+            customerAddress: nil,
+            readingDate: draft.readingDate.isEmpty ? nil : draft.readingDate,
+            billingPeriod: draft.billingMonth.isEmpty ? "Current Period" : draft.billingMonth,
+            dueDate: draft.dueDate.isEmpty ? nil : draft.dueDate,
+            previousReading: draft.previousReading.isEmpty ? "" : "\(draft.previousReading) kWh",
+            currentReading: draft.currentReading.isEmpty ? "" : "\(draft.currentReading) kWh",
+            consumptionKwh: draft.totalKWh.isEmpty ? "" : "\(draft.totalKWh) kWh",
+            currentCharge: draft.electricityCharge.isEmpty ? nil : "Rs. \(draft.electricityCharge)",
+            fixedCharges: nil,
+            taxesAndLevies: draft.sscLevy.isEmpty ? nil : "Rs. \(draft.sscLevy)",
+            monthlyBill: draft.monthlyBill.isEmpty ? nil : "Rs. \(draft.monthlyBill)",
+            previousBalance: draft.previousBalance.isEmpty ? nil : "Rs. \(draft.previousBalance)",
+            payments: draft.payments.isEmpty ? nil : "Rs. \(draft.payments)",
+            outstandingBalance: draft.outstandingBalance.isEmpty ? nil : "Rs. \(draft.outstandingBalance)",
+            totalAmountPayable: draft.totalAmount.isEmpty ? (draft.monthlyBill.isEmpty ? "" : "Rs. \(draft.monthlyBill)") : "Rs. \(draft.totalAmount)",
+            ebillLink: draft.billURL.isEmpty ? nil : draft.billURL,
+            rawText: draft.rawExtractedText,
+            isMathConsistent: !hasErrors,
+            validationMessages: msgs,
+            confidenceScore: Double(draft.extractionConfidence)
+        )
+    }
+
     public static let sample = ExtractedBillData(
         provider: "CEB",
         accountNumber: "5410264908",
@@ -138,51 +1103,9 @@ public struct ExtractedBillData: Equatable {
         confidenceScore: 0.98
     )
 
-    // Numeric extractors
-    public var previousReadingValue: Int? {
-        Int(Self.cleanNumericString(from: previousReading))
-    }
-
-    public var currentReadingValue: Int? {
-        Int(Self.cleanNumericString(from: currentReading))
-    }
-
-    public var consumptionValue: Double? {
-        Double(Self.cleanNumericString(from: consumptionKwh))
-    }
-
-    public var totalAmountValue: Double? {
-        Double(Self.cleanNumericString(from: totalAmountPayable))
-    }
-
-    public var monthlyBillValue: Double? {
-        guard let mb = monthlyBill else { return nil }
-        return Double(Self.cleanNumericString(from: mb))
-    }
-
-    public var currentChargeValue: Double? {
-        guard let c = currentCharge else { return nil }
-        return Double(Self.cleanNumericString(from: c))
-    }
-
-    public var taxesValue: Double? {
-        guard let t = taxesAndLevies else { return nil }
-        return Double(Self.cleanNumericString(from: t))
-    }
-
-    public var previousBalanceValue: Double? {
-        guard let p = previousBalance else { return nil }
-        return Double(Self.cleanNumericString(from: p))
-    }
-
-    public var paymentsValue: Double? {
-        guard let p = payments else { return nil }
-        return Double(Self.cleanNumericString(from: p))
-    }
-
-    public var outstandingValue: Double? {
-        guard let o = outstandingBalance else { return nil }
-        return Double(Self.cleanNumericString(from: o))
+    public static func parse(from rawText: String) -> ExtractedBillData {
+        let draft = BillTextRecognitionService.shared.parseRecognizedText(rawText)
+        return ExtractedBillData(from: draft)
     }
 
     public static func cleanNumericString(from input: String) -> String {
@@ -205,426 +1128,5 @@ public struct ExtractedBillData: Equatable {
         }
 
         return (sanitized as NSString).substring(with: match.range)
-    }
-
-    // MARK: - Intelligent Parser Engine
-    public static func parse(from rawText: String) -> ExtractedBillData {
-        let trimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return ExtractedBillData(provider: "Unknown", rawText: "")
-        }
-
-        let lines = trimmed
-            .components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-
-        var validationMessages: [String] = []
-
-        // 1. PROVIDER IDENTIFICATION
-        var provider = "Unknown"
-        if trimmed.range(of: "\\bCEB\\b|Ceylon Electricity Board|ebill\\.edl\\.lk", options: .regularExpression) != nil {
-            provider = "CEB"
-        } else if trimmed.range(of: "\\bLECO\\b|Lanka Electricity", options: .regularExpression) != nil {
-            provider = "LECO"
-        } else {
-            provider = "CEB"
-        }
-
-        // 2. ACCOUNT NUMBER & TARIFF CATEGORY
-        var accountNumber = ""
-        var tariffCategory: String? = nil
-
-        let acRegexPatterns = [
-            #"A/C\s*(?:No|Numbers?)?[\s.:]*([0-9\s]{9,14})(?:\s*\(([A-Z0-9]+)\))?"#,
-            #"Account\s*(?:No|Number)?[\s.:]*([0-9\s]{9,14})(?:\s*\(([A-Z0-9]+)\))?"#,
-            #"Payment\s*Ref[\s.:]*([0-9]{10})"#
-        ]
-
-        for pat in acRegexPatterns {
-            if let groups = captureGroups(in: trimmed, pattern: pat, count: 2) {
-                let cleanedAc = groups[0].replacingOccurrences(of: " ", with: "")
-                if cleanedAc.count >= 9 {
-                    accountNumber = cleanedAc
-                    if !groups[1].isEmpty {
-                        tariffCategory = groups[1]
-                    }
-                    break
-                }
-            } else if let single = firstCaptureGroup(in: trimmed, pattern: pat) {
-                let cleanedAc = single.replacingOccurrences(of: " ", with: "")
-                if cleanedAc.count >= 9 {
-                    accountNumber = cleanedAc
-                    break
-                }
-            }
-        }
-
-        if tariffCategory == nil {
-            if let tMatch = firstCaptureGroup(in: trimmed, pattern: #"(?:Tariff|Category)[\s.:]*([A-Z0-9\s-]{2,12})"#) {
-                tariffCategory = tMatch.trimmingCharacters(in: .whitespaces)
-            }
-        }
-
-        // 3. CUSTOMER NAME
-        var customerName: String? = nil
-        for (idx, line) in lines.enumerated() {
-            if line.contains("A/C No") || line.contains("A/C Numbers") {
-                if idx + 1 < lines.count {
-                    let next = lines[idx + 1]
-                    if !next.contains("B/F") && !next.contains("Reading") && !next.contains("http") && !next.contains("Date") {
-                        if next.range(of: #"^[A-Za-z\s.]{2,40}$"#, options: .regularExpression) != nil {
-                            customerName = next
-                            break
-                        }
-                    }
-                }
-            } else if line.contains("Account Name") || line.contains("Customer Name") {
-                if let name = firstCaptureGroup(in: line, pattern: #"(?:Account\s*Name|Customer\s*Name)[\s.:]*([A-Za-z\s.]+)"#) {
-                    customerName = name
-                    break
-                }
-            }
-        }
-
-        // 4. DATES (Reading Date, Due Date, Billing Period)
-        var readingDate: String? = nil
-        var dueDate: String? = nil
-        var billingPeriod = ""
-
-        if let rdMatch = firstCaptureGroup(in: trimmed, pattern: #"Reading\s*Date[\s.:]*(\d{4}-\d{2}-\d{2}|\d{2}/\d{2}/\d{4}|\d{2}/\d{2}/\d{2})"#) {
-            readingDate = rdMatch
-        } else if let bpdMatch = firstCaptureGroup(in: trimmed, pattern: #"Bill\s*Print\s*Date[\s.:]*(\d{2}/\d{2}/\d{2,4})"#) {
-            readingDate = bpdMatch
-        }
-
-        if let dueMatch = firstCaptureGroup(in: trimmed, pattern: #"(?:by|Due\s*Date)[\s.:]*(\d{4}-\d{2}-\d{2}|\d{2}/\d{2}/\d{4}|\d{2}/\d{2}/\d{2})"#) {
-            dueDate = dueMatch
-        }
-
-        let rangePattern = #"(\d{1,2}\s+[A-Za-z]{3,9}(?:\s+\d{4})?\s*(?:-|–|to)\s*\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4})"#
-        if let rangeMatch = firstCaptureGroup(in: trimmed, pattern: rangePattern) {
-            billingPeriod = rangeMatch
-        } else if let rDate = readingDate, let formattedPeriod = convertDateToBillingPeriod(rDate) {
-            billingPeriod = formattedPeriod
-        } else {
-            billingPeriod = "Statement Period"
-        }
-
-        // 5. READINGS & CONSUMPTION EQUATION
-        var prevReadingStr = ""
-        var currReadingStr = ""
-        var consumptionStr = ""
-
-        let cebEquationPattern = #"Reading[\s:]*(\d[\d,]*)\s*[-–]\s*(\d[\d,]*)\s*=\s*(\d[\d,]*)\s*(?:Units|kWh)?"#
-        if let eqGroups = captureGroups(in: trimmed, pattern: cebEquationPattern, count: 3) {
-            currReadingStr = "\(eqGroups[0]) kWh"
-            prevReadingStr = "\(eqGroups[1]) kWh"
-            consumptionStr = "\(eqGroups[2]) kWh"
-        } else {
-            let foundPrev = findNumberNearKeywords(in: lines, keywords: ["previous reading", "prev. reading", "prev reading", "previous"])
-            let foundCurr = findNumberNearKeywords(in: lines, keywords: ["current reading", "curr. reading", "present reading", "meter reading"])
-            let foundCons = findNumberNearKeywords(in: lines, keywords: ["consumption", "units consumed", "units", "total units"])
-
-            if let p = foundPrev { prevReadingStr = "\(p) kWh" }
-            if let c = foundCurr { currReadingStr = "\(c) kWh" }
-            if let k = foundCons { consumptionStr = "\(k) kWh" }
-
-            if consumptionStr.isEmpty,
-               let pInt = Int(cleanNumericString(from: prevReadingStr)),
-               let cInt = Int(cleanNumericString(from: currReadingStr)),
-               cInt >= pInt {
-                consumptionStr = "\(cInt - pInt) kWh"
-            }
-        }
-
-        // 6. DETAILED CHARGES BREAKDOWN
-        var currentCharge: String? = nil
-        if let cMatch = firstCaptureGroup(in: trimmed, pattern: #"\bCharge[\s.:]*(?:Rs\.?|LKR)?[\s]*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})?|[0-9]+(?:\.[0-9]{2})?)"#) {
-            currentCharge = "Rs. \(cMatch)"
-        }
-
-        var fixedCharges: String? = nil
-        if let fMatch = firstCaptureGroup(in: trimmed, pattern: #"Fixed\s*Charge[\s.:]*(?:Rs\.?|LKR)?[\s]*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})?|[0-9]+(?:\.[0-9]{2})?)"#) {
-            fixedCharges = "Rs. \(fMatch)"
-        }
-
-        var taxesAndLevies: String? = nil
-        if let sscMatch = firstCaptureGroup(in: trimmed, pattern: #"(?:SSC\s*Levy|Adjustment|VAT|Taxes)[\s.:]*(?:Rs\.?|LKR)?[\s]*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})?|[0-9]+(?:\.[0-9]{2})?)"#) {
-            taxesAndLevies = "Rs. \(sscMatch)"
-        }
-
-        var monthlyBill: String? = nil
-        let monthlyPatterns = [
-            #"Monthly\s*Bill[\s.:]*(?:Rs\.?|LKR)?[\s]*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})?|[0-9]+(?:\.[0-9]{2})?)"#,
-            #"Total\s*amount\s*for\s*this\s*month[\s.:]*(?:Rs\.?|LKR)?[\s]*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})?|[0-9]+(?:\.[0-9]{2})?)"#
-        ]
-        for pat in monthlyPatterns {
-            if let m = firstCaptureGroup(in: trimmed, pattern: pat) {
-                monthlyBill = "Rs. \(m)"
-                break
-            }
-        }
-
-        // 7. PREVIOUS BALANCES & PAYMENTS
-        var previousBalance: String? = nil
-        if let bfMatch = firstCaptureGroup(in: trimmed, pattern: #"(?:B/F|Brought\s*Forward|Account\s*Balance[^\n:]*)[\s.:]+(?:Rs\.?|LKR)?[\s]*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})?|[0-9]+(?:\.[0-9]{2})?)"#) {
-            previousBalance = "Rs. \(bfMatch)"
-        }
-
-        var payments: String? = nil
-        if let pmtMatch = firstCaptureGroup(in: trimmed, pattern: #"(?:Payments?|Last\s*Payment)[\s.:]*(?:Rs\.?|LKR)?[\s]*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})?|[0-9]+(?:\.[0-9]{2})?)"#) {
-            payments = "Rs. \(pmtMatch)"
-        }
-
-        var outstandingBalance: String? = nil
-        if let outMatch = firstCaptureGroup(in: trimmed, pattern: #"Outstanding[\s.:]*(?:Rs\.?|LKR)?[\s]*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})?|[0-9]+(?:\.[0-9]{2})?)"#) {
-            outstandingBalance = "Rs. \(outMatch)"
-        }
-
-        // 8. TOTAL AMOUNT PAYABLE
-        var totalAmountPayable = ""
-        let totalPatterns = [
-            #"Total\s*Due[\s.:]*(?:Rs\.?|LKR)?[\s]*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})?|[0-9]+(?:\.[0-9]{2})?)"#,
-            #"Amount\s*Payable[\s.:]*(?:Rs\.?|LKR)?[\s]*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})?|[0-9]+(?:\.[0-9]{2})?)"#,
-            #"TOTAL\s*CHARGES\s*DUE[^\n:]*[\s:]+(?:Rs\.?|LKR)?[\s]*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})?|[0-9]+(?:\.[0-9]{2})?)"#,
-            #"Total\s*Payable[\s.:]*(?:Rs\.?|LKR)?[\s]*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})?|[0-9]+(?:\.[0-9]{2})?)"#
-        ]
-        for pat in totalPatterns {
-            if let tot = firstCaptureGroup(in: trimmed, pattern: pat) {
-                totalAmountPayable = "Rs. \(tot)"
-                break
-            }
-        }
-
-        if totalAmountPayable.isEmpty {
-            if let mb = monthlyBill {
-                totalAmountPayable = mb
-            } else if let ch = currentCharge {
-                totalAmountPayable = ch
-            }
-        }
-
-        // 9. E-BILL LINK
-        var ebillLink: String? = nil
-        if let link = firstCaptureGroup(in: trimmed, pattern: #"(https?://ebill\.[^\s]+)"#) {
-            ebillLink = link
-        }
-
-        // 10. MATHEMATICAL CROSS-VALIDATION
-        var isMathConsistent = true
-        var confidenceScore = 0.5
-
-        let prevVal = Int(cleanNumericString(from: prevReadingStr)) ?? 0
-        let currVal = Int(cleanNumericString(from: currReadingStr)) ?? 0
-        let consVal = Int(cleanNumericString(from: consumptionStr)) ?? 0
-
-        if prevVal > 0 && currVal > 0 && consVal > 0 {
-            if currVal - prevVal == consVal {
-                validationMessages.append("Meter readings verified: \(currVal) - \(prevVal) = \(consVal) Units")
-                confidenceScore += 0.2
-            } else {
-                isMathConsistent = false
-                validationMessages.append("Warning: Meter reading difference (\(currVal - prevVal)) differs from detected consumption (\(consVal))")
-            }
-        }
-
-        let chargeVal = Double(cleanNumericString(from: currentCharge ?? "")) ?? 0.0
-        let taxVal = Double(cleanNumericString(from: taxesAndLevies ?? "")) ?? 0.0
-        let monthlyVal = Double(cleanNumericString(from: monthlyBill ?? "")) ?? 0.0
-
-        if chargeVal > 0.0 && monthlyVal > 0.0 {
-            let expectedMonthly = round((chargeVal + taxVal) * 100) / 100
-            if abs(expectedMonthly - monthlyVal) <= 0.05 {
-                validationMessages.append("Monthly calculation verified: Rs. \(String(format: "%.2f", chargeVal)) + Rs. \(String(format: "%.2f", taxVal)) = Rs. \(String(format: "%.2f", monthlyVal))")
-                confidenceScore += 0.15
-            }
-        }
-
-        let outVal = Double(cleanNumericString(from: outstandingBalance ?? "")) ?? 0.0
-        let totalVal = Double(cleanNumericString(from: totalAmountPayable)) ?? 0.0
-
-        if monthlyVal > 0.0 && totalVal > 0.0 {
-            let expectedTotal = round((outVal + monthlyVal) * 100) / 100
-            if abs(expectedTotal - totalVal) <= 0.05 {
-                validationMessages.append("Total due verified: Outstanding Rs. \(String(format: "%.2f", outVal)) + Monthly Rs. \(String(format: "%.2f", monthlyVal)) = Rs. \(String(format: "%.2f", totalVal))")
-                confidenceScore += 0.15
-            }
-        }
-
-        let bfVal = Double(cleanNumericString(from: previousBalance ?? "")) ?? 0.0
-        let pmtVal = Double(cleanNumericString(from: payments ?? "")) ?? 0.0
-
-        if bfVal > 0.0 && pmtVal > 0.0 && outVal > 0.0 {
-            let expectedOut = round((bfVal - pmtVal) * 100) / 100
-            if abs(expectedOut - outVal) <= 0.05 {
-                validationMessages.append("B/F settlement verified: Rs. \(String(format: "%.2f", bfVal)) - Rs. \(String(format: "%.2f", pmtVal)) = Rs. \(String(format: "%.2f", outVal))")
-                confidenceScore += 0.1
-            }
-        }
-
-        if !accountNumber.isEmpty {
-            confidenceScore += 0.15
-        }
-
-        return ExtractedBillData(
-            provider: provider,
-            accountNumber: accountNumber,
-            tariffCategory: tariffCategory,
-            customerName: customerName,
-            customerAddress: nil,
-            readingDate: readingDate,
-            billingPeriod: billingPeriod,
-            dueDate: dueDate,
-            previousReading: prevReadingStr,
-            currentReading: currReadingStr,
-            consumptionKwh: consumptionStr,
-            currentCharge: currentCharge,
-            fixedCharges: fixedCharges,
-            taxesAndLevies: taxesAndLevies,
-            monthlyBill: monthlyBill,
-            previousBalance: previousBalance,
-            payments: payments,
-            outstandingBalance: outstandingBalance,
-            totalAmountPayable: totalAmountPayable,
-            ebillLink: ebillLink,
-            rawText: trimmed,
-            isMathConsistent: isMathConsistent,
-            validationMessages: validationMessages,
-            confidenceScore: min(1.0, confidenceScore)
-        )
-    }
-
-    // MARK: - Helpers
-    private static func convertDateToBillingPeriod(_ dateStr: String) -> String? {
-        let clean = dateStr.trimmingCharacters(in: .whitespacesAndNewlines)
-        let df = DateFormatter()
-        df.locale = Locale(identifier: "en_US_POSIX")
-
-        var parsedDate: Date? = nil
-        for format in ["yyyy-MM-dd", "dd/MM/yyyy", "dd/MM/yy", "yyyy/MM/dd"] {
-            df.dateFormat = format
-            if let d = df.date(from: clean) {
-                parsedDate = d
-                break
-            }
-        }
-
-        guard let endDate = parsedDate else { return nil }
-
-        let calendar = Calendar.current
-        let components = calendar.dateComponents([.year, .month], from: endDate)
-        guard let startOfMonth = calendar.date(from: components) else { return nil }
-
-        let outStart = DateFormatter()
-        outStart.locale = Locale(identifier: "en_US_POSIX")
-        outStart.dateFormat = "dd MMM"
-
-        let outEnd = DateFormatter()
-        outEnd.locale = Locale(identifier: "en_US_POSIX")
-        outEnd.dateFormat = "dd MMM yyyy"
-
-        return "\(outStart.string(from: startOfMonth)) – \(outEnd.string(from: endDate))"
-    }
-
-    private static func findNumberNearKeywords(in lines: [String], keywords: [String]) -> String? {
-        let numberPattern = #"([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+(?:\.[0-9]+)?)"#
-        for (i, line) in lines.enumerated() {
-            let lower = line.lowercased()
-            if keywords.contains(where: { lower.contains($0) }) {
-                if let sameLine = firstCaptureGroup(in: line, pattern: numberPattern) {
-                    return sameLine
-                }
-                if i + 1 < lines.count, let nextLine = firstCaptureGroup(in: lines[i + 1], pattern: numberPattern) {
-                    return nextLine
-                }
-            }
-        }
-        return nil
-    }
-
-    private static func firstCaptureGroup(in text: String, pattern: String) -> String? {
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
-              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
-              match.numberOfRanges > 1,
-              let range = Range(match.range(at: 1), in: text) else { return nil }
-        return String(text[range]).trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private static func captureGroups(in text: String, pattern: String, count: Int) -> [String]? {
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
-              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
-              match.numberOfRanges > count else { return nil }
-
-        var results: [String] = []
-        for idx in 1...count {
-            guard let r = Range(match.range(at: idx), in: text) else { return nil }
-            results.append(String(text[r]).trimmingCharacters(in: .whitespacesAndNewlines))
-        }
-        return results
-    }
-}
-
-// MARK: - Native Vision OCR Engine
-public enum BillTextRecognitionService {
-
-    public static func recognizeText(from image: UIImage) async throws -> String {
-        guard let cgImage = image.cgImage else {
-            throw NSError(domain: "BillOCR", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid image data."])
-        }
-
-        let orientation = cgImageOrientation(from: image.imageOrientation)
-
-        return try await withCheckedThrowingContinuation { continuation in
-            let request = VNRecognizeTextRequest { request, error in
-                if let error = error {
-                    continuation.resume(throwing: error)
-                    return
-                }
-
-                guard let observations = request.results as? [VNRecognizedTextObservation], !observations.isEmpty else {
-                    continuation.resume(returning: "")
-                    return
-                }
-
-                // Sort observations top-to-bottom, left-to-right to preserve text geometry
-                let sorted = observations.sorted { lhs, rhs in
-                    if abs(lhs.boundingBox.midY - rhs.boundingBox.midY) > 0.015 {
-                        return lhs.boundingBox.midY > rhs.boundingBox.midY
-                    }
-                    return lhs.boundingBox.minX < rhs.boundingBox.minX
-                }
-
-                let text = sorted.compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
-                continuation.resume(returning: text)
-            }
-
-            request.recognitionLevel = .accurate
-            request.usesLanguageCorrection = true
-            request.recognitionLanguages = ["en-US", "en-GB"]
-
-            let handler = VNImageRequestHandler(cgImage: cgImage, orientation: orientation, options: [:])
-            DispatchQueue.global(qos: .userInitiated).async {
-                do {
-                    try handler.perform([request])
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
-        }
-    }
-
-    private static func cgImageOrientation(from uiOrientation: UIImage.Orientation) -> CGImagePropertyOrientation {
-        switch uiOrientation {
-        case .up: return .up
-        case .down: return .down
-        case .left: return .left
-        case .right: return .right
-        case .upMirrored: return .upMirrored
-        case .downMirrored: return .downMirrored
-        case .leftMirrored: return .leftMirrored
-        case .rightMirrored: return .rightMirrored
-        @unknown default: return .up
-        }
     }
 }

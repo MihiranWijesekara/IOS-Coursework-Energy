@@ -1,4 +1,4 @@
-﻿//
+//
 //  SwiftDataBillService.swift
 //  ios-final-coursework
 //
@@ -182,4 +182,200 @@ public final class SwiftDataBillService {
         formatter.dateFormat = "MMMM yyyy"
         return formatter.string(from: date).uppercased()
     }
+
+    // MARK: - PDF Specification: SavedBill Persistence Methods
+
+    /// Fetches all saved bills for a user sorted newest first.
+    public func fetchBills(for email: String, in context: ModelContext) -> [SavedBill] {
+        let descriptor = FetchDescriptor<SavedBill>(
+            predicate: #Predicate { $0.userEmail == email },
+            sortBy: [SortDescriptor(\.scannedDate, order: .reverse)]
+        )
+        return (try? context.fetch(descriptor)) ?? []
+    }
+
+    /// Detects if a bill with the same Account Number and Reading Date (or Billing Month + Consumption) already exists.
+    public func findDuplicateBill(for draft: BillExtractionDraft, userEmail: String, in context: ModelContext) -> SavedBill? {
+        let existing = fetchBills(for: userEmail, in: context)
+        let acct = draft.accountNumber.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rDate = draft.readingDate.trimmingCharacters(in: .whitespacesAndNewlines)
+        let bMonth = draft.billingMonth.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return existing.first { saved in
+            if let editingID = draft.existingBillID, saved.id == editingID {
+                return false
+            }
+            if !acct.isEmpty && !rDate.isEmpty {
+                return saved.accountNumber == acct && saved.readingDate == rDate
+            }
+            if !acct.isEmpty && !bMonth.isEmpty {
+                let draftKWh = Double(draft.totalKWh) ?? -1
+                return saved.accountNumber == acct && saved.billingMonth == bMonth &&
+                    abs(saved.totalKWh - draftKWh) < 0.01
+            }
+            return false
+        }
+    }
+
+    /// Persists a user-reviewed and confirmed bill draft into SwiftData.
+    @discardableResult
+    public func saveReviewedBill(
+        from draft: BillExtractionDraft,
+        userEmail: String,
+        overwriteDuplicateID: UUID? = nil,
+        in context: ModelContext
+    ) throws -> SavedBill {
+        let structured = draft.toExtractedElectricityBill()
+        guard let consumption = structured.consumptionUnits, consumption >= 0 else {
+            throw BillPersistenceError.missingRequiredFields("Please enter a valid consumption (kWh / Units) value before saving.")
+        }
+
+        let resolvedTotalDecimal = structured.totalDue ?? structured.monthlyBill ?? structured.energyCharge
+        guard let finalTotalDecimal = resolvedTotalDecimal, finalTotalDecimal >= 0 else {
+            throw BillPersistenceError.missingRequiredFields("Please enter a valid Total Due or Monthly Bill amount before saving.")
+        }
+
+        let resolvedBillingMonth: String = {
+            if let existingMonth = draft.billingMonth.trimmedNilIfEmpty {
+                return existingMonth
+            }
+            if let rDate = structured.readingDate {
+                let df = DateFormatter()
+                df.locale = Locale(identifier: "en_US_POSIX")
+                df.dateFormat = "MMMM yyyy"
+                return df.string(from: rDate)
+            }
+            if let rRaw = structured.readingDateRaw {
+                return rRaw
+            }
+            let df = DateFormatter()
+            df.dateFormat = "MMMM yyyy"
+            return df.string(from: Date())
+        }()
+
+        let targetID = overwriteDuplicateID ?? draft.existingBillID
+        let billToSave: SavedBill
+
+        if let targetID,
+           let existing = fetchBill(by: targetID, in: context) {
+            billToSave = existing
+        } else {
+            billToSave = SavedBill(
+                userEmail: userEmail,
+                billingMonth: resolvedBillingMonth,
+                totalKWh: Double(consumption),
+                totalAmount: NSDecimalNumber(decimal: finalTotalDecimal).doubleValue,
+                dueDate: draft.dueDate,
+                providerName: structured.provider ?? "Electricity Provider"
+            )
+            context.insert(billToSave)
+        }
+
+        billToSave.userEmail = userEmail
+        billToSave.formatTypeRaw = draft.formatType.rawValue
+        billToSave.isCEBeBillFormat = (draft.formatType == .cebEBill)
+        billToSave.providerName = structured.provider ?? "Electricity Provider"
+        billToSave.accountNumber = structured.accountNumber ?? ""
+        billToSave.customerName = structured.customerName ?? ""
+        billToSave.tariffCategory = structured.tariffCode ?? ""
+        billToSave.billingMonth = resolvedBillingMonth
+        billToSave.readingDate = structured.readingDateRaw ?? draft.readingDate
+        billToSave.readingReference = structured.readingDateSuffix ?? ""
+        billToSave.dueDate = structured.paymentDueDateRaw ?? draft.dueDate
+        billToSave.previousReading = structured.previousReading ?? 0
+        billToSave.currentReading = structured.currentReading ?? 0
+        billToSave.hasReadingsValue = (structured.previousReading != nil || structured.currentReading != nil)
+        billToSave.totalKWh = Double(consumption)
+
+        billToSave.previousBalance = structured.broughtForward.map { NSDecimalNumber(decimal: $0).doubleValue } ?? 0.0
+        billToSave.hasPreviousBalanceValue = (structured.broughtForward != nil)
+        billToSave.payments = structured.payments.map { NSDecimalNumber(decimal: $0).doubleValue } ?? 0.0
+        billToSave.hasPaymentsValue = (structured.payments != nil)
+        billToSave.outstandingBalance = structured.outstandingBalance.map { NSDecimalNumber(decimal: $0).doubleValue } ?? 0.0
+        billToSave.hasOutstandingValue = (structured.outstandingBalance != nil)
+        billToSave.outstandingDate = structured.outstandingDueDateRaw ?? draft.outstandingDate
+        billToSave.electricityCharge = structured.energyCharge.map { NSDecimalNumber(decimal: $0).doubleValue } ?? 0.0
+        billToSave.hasEnergyChargeValue = (structured.energyCharge != nil)
+        billToSave.sscLevy = structured.levyAmount.map { NSDecimalNumber(decimal: $0).doubleValue } ?? 0.0
+        billToSave.hasLevyValue = (structured.levyAmount != nil)
+        billToSave.monthlyBill = structured.monthlyBill.map { NSDecimalNumber(decimal: $0).doubleValue } ?? 0.0
+        billToSave.hasMonthlyBillValue = (structured.monthlyBill != nil)
+        billToSave.totalAmount = NSDecimalNumber(decimal: finalTotalDecimal).doubleValue
+        billToSave.billURL = structured.billURL ?? ""
+        billToSave.currency = structured.currency
+        billToSave.rawOCRText = structured.rawOCRText
+        billToSave.extractionConfidence = Double(structured.extractionConfidence)
+
+        // Synchronize with ElectricityBill so legacy/other screens stay updated automatically
+        let cal = Calendar.current
+        let rDateObj = structured.readingDate ?? Date()
+        let pStart = cal.date(byAdding: .day, value: -30, to: rDateObj) ?? rDateObj
+        _ = try? saveBill(
+            context: context,
+            periodStart: pStart,
+            periodEnd: rDateObj,
+            prevReading: structured.previousReading,
+            currReading: structured.currentReading,
+            consumptionKwh: Double(consumption),
+            billAmount: NSDecimalNumber(decimal: finalTotalDecimal).doubleValue,
+            currency: structured.currency,
+            provider: structured.provider ?? "CEB",
+            accountNumber: structured.accountNumber ?? "",
+            customerName: structured.customerName,
+            customerAddress: nil,
+            tariffCategory: structured.tariffCode,
+            billDate: structured.readingDate,
+            dueDate: structured.paymentDueDate,
+            billingPeriodText: resolvedBillingMonth,
+            currentCharges: structured.energyCharge.map { NSDecimalNumber(decimal: $0).doubleValue },
+            fixedCharges: nil,
+            taxesAndLevies: structured.levyAmount.map { NSDecimalNumber(decimal: $0).doubleValue },
+            previousBalance: structured.broughtForward.map { NSDecimalNumber(decimal: $0).doubleValue },
+            payments: structured.payments.map { NSDecimalNumber(decimal: $0).doubleValue },
+            outstandingBalance: structured.outstandingBalance.map { NSDecimalNumber(decimal: $0).doubleValue },
+            totalAmountPayable: NSDecimalNumber(decimal: finalTotalDecimal).doubleValue,
+            rawOcrText: structured.rawOCRText,
+            imageData: nil,
+            isVerified: true
+        )
+
+        do {
+            try context.save()
+            return billToSave
+        } catch {
+            if overwriteDuplicateID == nil && draft.existingBillID == nil {
+                context.delete(billToSave)
+            }
+            throw BillPersistenceError.saveFailed(error.localizedDescription)
+        }
+    }
+
+    public func fetchBill(by id: UUID, in context: ModelContext) -> SavedBill? {
+        let descriptor = FetchDescriptor<SavedBill>(predicate: #Predicate { $0.id == id })
+        return try? context.fetch(descriptor).first
+    }
+
+    public func deleteBill(_ bill: SavedBill, in context: ModelContext) throws {
+        context.delete(bill)
+        try context.save()
+    }
 }
+
+// MARK: - Persistence Errors
+public enum BillPersistenceError: LocalizedError {
+    case contextUnavailable
+    case missingRequiredFields(String)
+    case saveFailed(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .contextUnavailable:
+            return "Database storage context is unavailable."
+        case .missingRequiredFields(let details):
+            return details
+        case .saveFailed(let reason):
+            return "Failed to save electricity bill: \(reason)"
+        }
+    }
+}
+

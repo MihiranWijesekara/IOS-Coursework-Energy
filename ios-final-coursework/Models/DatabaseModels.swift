@@ -257,6 +257,41 @@ public final class ElectricityBill {
         self.isVerified = isVerified
         self.user = user
     }
+
+    public func toDraft() -> BillExtractionDraft {
+        var draft = BillExtractionDraft()
+        draft.existingBillID = id
+        draft.formatType = provider.localizedCaseInsensitiveContains("CEB") ? .cebEBill : (provider.localizedCaseInsensitiveContains("LECO") ? .lecoBill : .standard)
+        draft.providerName = provider
+        draft.accountNumber = accountNumber
+        draft.customerName = customerName ?? ""
+        draft.tariffCategory = tariffCategory ?? ""
+        draft.billingMonth = billingPeriodText
+        if let bDate = billDate {
+            let df = DateFormatter()
+            df.locale = Locale(identifier: "en_US_POSIX")
+            df.dateFormat = "yyyy-MM-dd"
+            draft.readingDate = df.string(from: bDate)
+        }
+        if let dDate = dueDate {
+            let df = DateFormatter()
+            df.locale = Locale(identifier: "en_US_POSIX")
+            df.dateFormat = "yyyy-MM-dd"
+            draft.dueDate = df.string(from: dDate)
+        }
+        draft.previousReading = prevReading.map { "\($0)" } ?? ""
+        draft.currentReading = currReading.map { "\($0)" } ?? ""
+        draft.totalKWh = String(format: "%.0f", consumptionKwh)
+        draft.previousBalance = previousBalance.map { String(format: "%.2f", $0) } ?? ""
+        draft.payments = payments.map { String(format: "%.2f", $0) } ?? ""
+        draft.outstandingBalance = outstandingBalance.map { String(format: "%.2f", $0) } ?? ""
+        draft.electricityCharge = currentCharges.map { String(format: "%.2f", $0) } ?? ""
+        draft.sscLevy = taxesAndLevies.map { String(format: "%.2f", $0) } ?? ""
+        draft.totalAmount = String(format: "%.2f", totalAmountPayable)
+        draft.rawExtractedText = rawOcrText
+        draft.currency = currency
+        return draft
+    }
 }
 
 // MARK: - Prediction Model
@@ -320,6 +355,165 @@ public final class WeatherData {
         self.condition = condition
         self.precipProb = precipProb
         self.user = user
+    }
+}
+
+// MARK: - SavedBill Model (PDF Specification)
+@Model
+public final class SavedBill {
+    @Attribute(.unique) public var id: UUID
+    public var userEmail: String
+    public var billingMonth: String
+    public var totalKWh: Double
+    public var totalAmount: Double
+    public var dueDate: String
+    public var providerName: String
+    public var scannedDate: Date
+
+    // Extended Electricity Bill & CEB / LECO Fields (Defaulted for lightweight migration)
+    public var accountNumber: String = ""
+    public var customerName: String = ""
+    public var tariffCategory: String = ""
+    public var previousBalance: Double = 0.0
+    public var payments: Double = 0.0
+    public var outstandingBalance: Double = 0.0
+    public var outstandingDate: String = ""
+    public var readingDate: String = ""
+    public var readingReference: String = ""
+    public var previousReading: Int = 0
+    public var currentReading: Int = 0
+    public var electricityCharge: Double = 0.0
+    public var sscLevy: Double = 0.0
+    public var monthlyBill: Double = 0.0
+    public var billURL: String = ""
+    public var isCEBeBillFormat: Bool = false
+
+    // Precision Metadata Fields
+    public var formatTypeRaw: String = "Standard Bill"
+    public var currency: String = "LKR"
+    public var rawOCRText: String = ""
+    public var extractionConfidence: Double = 1.0
+    public var hasPreviousBalanceValue: Bool = false
+    public var hasPaymentsValue: Bool = false
+    public var hasOutstandingValue: Bool = false
+    public var hasReadingsValue: Bool = false
+    public var hasEnergyChargeValue: Bool = false
+    public var hasLevyValue: Bool = false
+    public var hasMonthlyBillValue: Bool = false
+
+    public init(
+        id: UUID = UUID(),
+        userEmail: String,
+        billingMonth: String,
+        totalKWh: Double,
+        totalAmount: Double,
+        dueDate: String,
+        providerName: String,
+        scannedDate: Date = Date(),
+        accountNumber: String = "",
+        customerName: String = "",
+        tariffCategory: String = "",
+        previousBalance: Double = 0.0,
+        payments: Double = 0.0,
+        outstandingBalance: Double = 0.0,
+        outstandingDate: String = "",
+        readingDate: String = "",
+        readingReference: String = "",
+        previousReading: Int = 0,
+        currentReading: Int = 0,
+        electricityCharge: Double = 0.0,
+        sscLevy: Double = 0.0,
+        monthlyBill: Double = 0.0,
+        billURL: String = "",
+        isCEBeBillFormat: Bool = false,
+        formatTypeRaw: String = BillFormatType.standard.rawValue,
+        currency: String = "LKR",
+        rawOCRText: String = "",
+        extractionConfidence: Double = 1.0,
+        hasPreviousBalanceValue: Bool = false,
+        hasPaymentsValue: Bool = false,
+        hasOutstandingValue: Bool = false,
+        hasReadingsValue: Bool = false,
+        hasEnergyChargeValue: Bool = false,
+        hasLevyValue: Bool = false,
+        hasMonthlyBillValue: Bool = false
+    ) {
+        self.id = id
+        self.userEmail = userEmail
+        self.billingMonth = billingMonth
+        self.totalKWh = totalKWh
+        self.totalAmount = totalAmount
+        self.dueDate = dueDate
+        self.providerName = providerName
+        self.scannedDate = scannedDate
+        self.accountNumber = accountNumber
+        self.customerName = customerName
+        self.tariffCategory = tariffCategory
+        self.previousBalance = previousBalance
+        self.payments = payments
+        self.outstandingBalance = outstandingBalance
+        self.outstandingDate = outstandingDate
+        self.readingDate = readingDate
+        self.readingReference = readingReference
+        self.previousReading = previousReading
+        self.currentReading = currentReading
+        self.electricityCharge = electricityCharge
+        self.sscLevy = sscLevy
+        self.monthlyBill = monthlyBill
+        self.billURL = billURL
+        self.isCEBeBillFormat = isCEBeBillFormat
+        self.formatTypeRaw = formatTypeRaw
+        self.currency = currency
+        self.rawOCRText = rawOCRText
+        self.extractionConfidence = extractionConfidence
+        self.hasPreviousBalanceValue = hasPreviousBalanceValue
+        self.hasPaymentsValue = hasPaymentsValue
+        self.hasOutstandingValue = hasOutstandingValue
+        self.hasReadingsValue = hasReadingsValue
+        self.hasEnergyChargeValue = hasEnergyChargeValue
+        self.hasLevyValue = hasLevyValue
+        self.hasMonthlyBillValue = hasMonthlyBillValue
+    }
+
+    // Decimal-safe helpers
+    public var totalDueDecimal: Decimal {
+        Decimal(string: String(format: "%.2f", totalAmount), locale: Locale(identifier: "en_US_POSIX")) ?? Decimal(totalAmount)
+    }
+
+    public var monthlyBillDecimal: Decimal? {
+        guard hasMonthlyBillValue || monthlyBill > 0 else { return nil }
+        return Decimal(string: String(format: "%.2f", monthlyBill), locale: Locale(identifier: "en_US_POSIX"))
+    }
+
+    public func toDraft() -> BillExtractionDraft {
+        var draft = BillExtractionDraft()
+        draft.existingBillID = id
+        draft.formatType = BillFormatType(rawValue: formatTypeRaw) ?? (isCEBeBillFormat ? .cebEBill : .standard)
+        draft.providerName = providerName
+        draft.accountNumber = accountNumber
+        draft.customerName = customerName
+        draft.tariffCategory = tariffCategory
+        draft.billingMonth = billingMonth
+        draft.readingDate = readingDate
+        draft.readingReference = readingReference
+        draft.dueDate = dueDate
+        draft.previousReading = (hasReadingsValue || previousReading > 0) ? "\(previousReading)" : ""
+        draft.currentReading = (hasReadingsValue || currentReading > 0) ? "\(currentReading)" : ""
+        draft.totalKWh = String(format: "%.0f", totalKWh)
+        draft.previousBalance = (hasPreviousBalanceValue || previousBalance != 0) ? String(format: "%.2f", previousBalance) : ""
+        draft.payments = (hasPaymentsValue || payments != 0) ? String(format: "%.2f", payments) : ""
+        draft.outstandingBalance = (hasOutstandingValue || outstandingBalance != 0) ? String(format: "%.2f", outstandingBalance) : ""
+        draft.outstandingDate = outstandingDate
+        draft.electricityCharge = (hasEnergyChargeValue || electricityCharge != 0) ? String(format: "%.2f", electricityCharge) : ""
+        draft.sscLevy = (hasLevyValue || sscLevy != 0) ? String(format: "%.2f", sscLevy) : ""
+        draft.monthlyBill = (hasMonthlyBillValue || monthlyBill != 0) ? String(format: "%.2f", monthlyBill) : ""
+        draft.totalAmount = String(format: "%.2f", totalAmount)
+        draft.billURL = billURL
+        draft.currency = currency.isEmpty ? "LKR" : currency
+        draft.rawExtractedText = rawOCRText
+        draft.isCEBeBillFormat = isCEBeBillFormat
+        draft.extractionConfidence = Float(extractionConfidence)
+        return draft
     }
 }
 
