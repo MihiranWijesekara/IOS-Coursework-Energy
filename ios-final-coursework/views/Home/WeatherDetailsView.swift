@@ -9,21 +9,13 @@ import SwiftUI
 
 public struct WeatherDetailsView: View {
     @EnvironmentObject var navState: AppNavigationState
+    @ObservedObject private var weatherService = WeatherService.shared
     
-    // Live Weather State
-    @State private var currentTemp: Double = 33.0
     @State private var tomorrowTemp: Double = 33.0
     @State private var highTemp: Double = 34.0
     @State private var lowTemp: Double = 27.0
-    @State private var conditionText: String = "Mostly sunny"
-    @State private var weatherIcon: String = "sun.max.fill"
-    @State private var humidity: Int = 75
-    @State private var rainProb: Int = 10
-    @State private var windSpeed: Double = 12.0
-    @State private var coolingDemandTitle: String = "High cooling demand"
-    @State private var coolingDemandDesc: String = "Higher temperatures may increase AC and fan usage."
-    @State private var coolingRecommendation: String = "Use AC at 24–26°C or reduce usage by 1 hour."
-    @State private var isLoading: Bool = false
+    @State private var rainProb: Int = 15
+    @State private var windSpeed: Double = 14.0
     
     public init() {}
     
@@ -58,7 +50,7 @@ public struct WeatherDetailsView: View {
                                 .foregroundColor(.white.opacity(0.85))
                             
                             HStack(alignment: .firstTextBaseline, spacing: 4) {
-                                Text("\(Int(round(currentTemp)))°")
+                                Text("\(Int(round(weatherService.currentTemperature)))°")
                                     .font(.system(size: 52, weight: .bold))
                                     .foregroundColor(.white)
                                 
@@ -70,7 +62,7 @@ public struct WeatherDetailsView: View {
                         
                         Spacer()
                         
-                        Image(systemName: weatherIcon)
+                        Image(systemName: weatherService.weatherIconName)
                             .font(.system(size: 44))
                             .foregroundColor(Color(red: 0.98, green: 0.78, blue: 0.15))
                     }
@@ -80,9 +72,43 @@ public struct WeatherDetailsView: View {
                     .shadow(color: Color.black.opacity(0.1), radius: 8, x: 0, y: 4)
                     
                     // Condition Subtitle
-                    Text(conditionText)
+                    Text(weatherService.conditionDescription)
                         .font(.system(size: 17, weight: .bold))
                         .foregroundColor(EnergyLensTheme.textPrimary)
+                    
+                    // Live Hourly Forecast Section
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Hourly Forecast")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundColor(EnergyLensTheme.textPrimary)
+                        
+                        HStack(spacing: 12) {
+                            ForEach(weatherService.hourlyForecast, id: \.time) { slot in
+                                VStack(spacing: 8) {
+                                    Text(slot.time)
+                                        .font(.system(size: 13, weight: .medium))
+                                        .foregroundColor(EnergyLensTheme.textSecondary)
+                                    
+                                    Image(systemName: slot.icon)
+                                        .font(.system(size: 24))
+                                        .foregroundColor(Color(red: 0.95, green: 0.65, blue: 0.15))
+                                        .frame(height: 28)
+                                    
+                                    Text("\(slot.temp)°C")
+                                        .font(.system(size: 15, weight: .bold))
+                                        .foregroundColor(EnergyLensTheme.textPrimary)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 14)
+                                .background(Color.white)
+                                .cornerRadius(14)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 14)
+                                        .stroke(EnergyLensTheme.borderSubtle, lineWidth: 1)
+                                )
+                            }
+                        }
+                    }
                     
                     // Tomorrow Row Card
                     HStack {
@@ -112,7 +138,7 @@ public struct WeatherDetailsView: View {
                     
                     // 3 Stat Columns Card
                     HStack {
-                        statColumn(label: "Humidity", value: "\(humidity)%")
+                        statColumn(label: "Humidity", value: "\(Int(round(weatherService.currentHumidity)))%")
                         Spacer()
                         statColumn(label: "Wind", value: "\(Int(round(windSpeed))) km/h")
                         Spacer()
@@ -123,25 +149,35 @@ public struct WeatherDetailsView: View {
                     .background(Color(red: 0.88, green: 0.95, blue: 0.99))
                     .cornerRadius(16)
                     
-                    // Yellow Alert Card: High cooling demand
+                    // Yellow Alert Card: Dynamic AC cooling demand
                     HStack(alignment: .top, spacing: 12) {
                         Image(systemName: "exclamationmark.triangle")
                             .font(.system(size: 20, weight: .semibold))
                             .foregroundColor(Color(red: 0.75, green: 0.45, blue: 0.08))
                             .padding(.top, 2)
                         
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("High cooling demand")
-                                .font(.system(size: 15, weight: .bold))
-                                .foregroundColor(Color(red: 0.55, green: 0.32, blue: 0.05))
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text("High cooling demand")
+                                    .font(.system(size: 15, weight: .bold))
+                                    .foregroundColor(Color(red: 0.55, green: 0.32, blue: 0.05))
+                                
+                                Spacer()
+                                
+                                Text("+\(weatherService.acLoadImpactPercent)% AC Load")
+                                    .font(.system(size: 12, weight: .bold))
+                                    .foregroundColor(Color(red: 0.75, green: 0.35, blue: 0.05))
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 2)
+                                    .background(Color.white.opacity(0.8))
+                                    .clipShape(Capsule())
+                            }
                             
-                            Text("Higher temperatures may increase AC and\nfan usage.")
+                            Text("Current \(Int(round(weatherService.currentTemperature)))°C temperature and \(Int(round(weatherService.currentHumidity)))% humidity elevate household AC load by +\(weatherService.acLoadImpactPercent)%.")
                                 .font(.system(size: 13, weight: .regular))
                                 .foregroundColor(Color(red: 0.60, green: 0.38, blue: 0.10))
                                 .lineSpacing(2)
                         }
-                        
-                        Spacer()
                     }
                     .padding(16)
                     .background(EnergyLensTheme.alertYellowBg)
@@ -157,7 +193,7 @@ public struct WeatherDetailsView: View {
                             .font(.system(size: 17, weight: .bold))
                             .foregroundColor(EnergyLensTheme.textPrimary)
                         
-                        Text("Use AC at 24–26°C or reduce usage by 1 hour.")
+                        Text("Use AC at 24–26°C or reduce usage by 1 hour to offset the +\(weatherService.acLoadImpactPercent)% climate impact.")
                             .font(.system(size: 14, weight: .regular))
                             .foregroundColor(EnergyLensTheme.textPrimary)
                     }
@@ -189,27 +225,10 @@ public struct WeatherDetailsView: View {
     
     private func loadWeatherDetails() async {
         let town = navState.town.isEmpty ? "Colombo" : navState.town
-        isLoading = true
         
         do {
-            let coords = try await WeatherService.shared.fetchCoordinates(for: town)
-            let forecast = try await WeatherService.shared.fetchWeather(latitude: coords.lat, longitude: coords.lon)
-            
-            if let current = forecast.current {
-                withAnimation {
-                    self.currentTemp = current.temperature2m
-                    let mapped = WeatherService.mapWeatherCode(current.weatherCode, temperature: current.temperature2m)
-                    self.conditionText = mapped.condition
-                    self.weatherIcon = mapped.icon
-                    
-                    if let relHum = current.relativeHumidity2m {
-                        self.humidity = Int(relHum)
-                    }
-                    if let wind = current.windSpeed10m {
-                        self.windSpeed = wind
-                    }
-                }
-            }
+            let coords = try await weatherService.fetchCoordinates(for: town)
+            let forecast = try await weatherService.fetchWeather(latitude: coords.lat, longitude: coords.lon)
             
             if let daily = forecast.daily {
                 withAnimation {
@@ -225,8 +244,9 @@ public struct WeatherDetailsView: View {
             }
         } catch {
             print("Failed loading weather details: \(error.localizedDescription)")
+            // Fallback to default Sri Lanka coordinates
+            _ = try? await weatherService.fetchWeather()
         }
-        isLoading = false
     }
     
     @ViewBuilder

@@ -122,7 +122,17 @@ public final class AppNavigationState: ObservableObject, Observable {
     @Published public var currentBillDraft: BillExtractionDraft = BillExtractionDraft()
     @Published public var lastOCRWarningMessage: String? = nil
 
+    public var selectedApplianceID: UUID? {
+        get { selectedApplianceId }
+        set { selectedApplianceId = newValue }
+    }
+
     private var screenHistory: [AppScreen] = []
+
+    public var navigationStack: [AppScreen] {
+        get { screenHistory }
+        set { screenHistory = newValue }
+    }
 
     public init() {}
     

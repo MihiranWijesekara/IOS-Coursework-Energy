@@ -11,6 +11,7 @@ import SwiftData
 public struct BillAnalysisResultView: View {
     @EnvironmentObject var navState: AppNavigationState
     @Query(sort: \ElectricityBill.periodEnd, order: .reverse) private var savedBills: [ElectricityBill]
+    @Query(sort: \SavedBill.scannedDate, order: .reverse) private var pdfSavedBills: [SavedBill]
     
     // Trend data
     private let months = ["Apr", "May", "Jun", "Jul", "Aug"]
@@ -23,10 +24,15 @@ public struct BillAnalysisResultView: View {
             let period = SwiftDataBillService.formatPeriod(start: latest.periodStart, end: latest.periodEnd)
             let previous = savedBills.count > 1 ? savedBills[1] : nil
             let comp = SwiftDataBillService.shared.calculateComparison(latest: latest, previous: previous)
-            let amount = String(format: "LKR %.2f", latest.billAmount)
+            let curr = (latest.currency.uppercased() == "USD" || latest.currency == "$") ? "$" : "Rs."
+            let amount = "\(curr) \(String(format: "%.2f", latest.billAmount))"
             return (period, latest.consumptionKwh, amount, comp.text, comp.isIncrease)
+        } else if let pdfLatest = pdfSavedBills.first {
+            let period = pdfLatest.billingMonth.isEmpty ? "Current Billing Period" : pdfLatest.billingMonth
+            let amount = "Rs. \(String(format: "%.2f", pdfLatest.totalAmount))"
+            return (period, pdfLatest.totalKWh, amount, "Latest imported bill", false)
         }
-        return ("01 Aug – 31 Aug 2025", 180, "LKR 7,850", "↑ 12.5% vs previous month", true)
+        return ("01 Aug – 31 Aug 2025", 180, "Rs. 7,850.00", "↑ 12.5% vs previous month", true)
     }
     
     public init() {}
@@ -34,8 +40,8 @@ public struct BillAnalysisResultView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Navigation Back
-            CustomBackButton(title: "Bill Analysis") {
-                navState.navigate(to: .billAnalysis)
+            CustomBackButton(title: "Done") {
+                navState.navigateBack()
             }
             .padding(.top, 12)
             .padding(.bottom, 20)

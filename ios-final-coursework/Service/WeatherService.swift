@@ -6,12 +6,42 @@
 //
 
 import Foundation
+import Combine
 import SwiftData
 
-public final class WeatherService {
+@MainActor
+public final class WeatherService: ObservableObject {
     public static let shared = WeatherService()
     
-    private init() {}
+    // Published live weather properties
+    @Published public var currentTemperature: Double = 31.0
+    @Published public var currentHumidity: Double = 78.0
+    @Published public var conditionDescription: String = "Sunny & Clear"
+    @Published public var weatherIconName: String = "sun.max.fill"
+    @Published public var hourlyForecast: [(time: String, temp: Int, icon: String)] = [
+        ("2 PM", 33, "sun.max.fill"),
+        ("5 PM", 31, "cloud.sun.fill"),
+        ("8 PM", 28, "moon.stars.fill")
+    ]
+    @Published public var acLoadImpactPercent: Int = 18
+    @Published public var isLoading: Bool = false
+    @Published public var lastError: String? = nil
+    
+    // Default coordinates: Sri Lanka (Colombo / Malabe)
+    public let defaultLatitude: Double = 6.9271
+    public let defaultLongitude: Double = 79.8612
+    
+    private init() {
+        calculateAcImpact()
+    }
+    
+    /// Calculate dynamic AC load impact percentage based on temperature and relative humidity
+    public func calculateAcImpact() {
+        let tempExcess = max(0.0, currentTemperature - 24.0)
+        let humidityExcess = max(0.0, currentHumidity - 60.0)
+        let impact = Int(round((tempExcess * 3.5) + (humidityExcess * 0.2)))
+        self.acLoadImpactPercent = max(5, min(40, impact))
+    }
     
     /// 1. Convert Town/City name to Coordinates (Latitude, Longitude)
     public func fetchCoordinates(for town: String) async throws -> (lat: Double, lon: Double, displayName: String) {
@@ -34,20 +64,89 @@ public final class WeatherService {
         return (location.latitude, location.longitude, location.name)
     }
     
-    /// 2. Fetch current and 7-day weather forecast from Open-Meteo
-    public func fetchWeather(latitude: Double, longitude: Double) async throws -> OpenMeteoResponse {
-        let urlString = "https://api.open-meteo.com/v1/forecast?latitude=\(latitude)&longitude=\(longitude)&current=temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto"
+    /// 2. Fetch current and hourly weather forecast from Open-Meteo
+    @discardableResult
+    public func fetchWeather(
+        latitude: Double = 6.9271,
+        longitude: Double = 79.8612
+    ) async throws -> OpenMeteoResponse {
+        isLoading = true
+        lastError = nil
+        
+        let urlString = "https://api.open-meteo.com/v1/forecast?latitude=\(latitude)&longitude=\(longitude)&current=temperature_2m,relative_humidity_2m,weather_code&hourly=temperature_2m,weather_code&forecast_days=1&timezone=auto"
         
         guard let url = URL(string: urlString) else {
+            isLoading = false
             throw URLError(.badURL)
         }
         
-        let (data, response) = try await URLSession.shared.data(from: url)
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            throw URLError(.badServerResponse)
+        do {
+            let (data, response) = try await URLSession.shared.data(from: url)
+            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+                isLoading = false
+                throw URLError(.badServerResponse)
+            }
+            
+            let decoded = try JSONDecoder().decode(OpenMeteoResponse.self, from: data)
+            
+            // Update current conditions
+            if let current = decoded.current {
+                self.currentTemperature = current.temperature2m
+                if let rh = current.relativeHumidity2m {
+                    self.currentHumidity = rh
+                }
+                let mapped = Self.mapWeatherCode(current.weatherCode, temperature: current.temperature2m)
+                self.conditionDescription = mapped.condition
+                self.weatherIconName = mapped.icon
+                calculateAcImpact()
+            }
+            
+            // Update hourly forecast
+            if let hourly = decoded.hourly {
+                var items: [(time: String, temp: Int, icon: String)] = []
+                for (idx, timeStr) in hourly.time.enumerated() {
+                    guard idx < hourly.temperature2m.count, idx < hourly.weatherCode.count else { continue }
+                    
+                    let hourPart: Int = {
+                        if let t = timeStr.firstIndex(of: "T") {
+                            let sub = timeStr[timeStr.index(after: t)...].prefix(2)
+                            return Int(sub) ?? idx
+                        }
+                        return idx
+                    }()
+                    
+                    // Select key hourly milestones (2 PM, 5 PM, 8 PM or spaced upcoming hours)
+                    if [14, 17, 20].contains(hourPart) || (items.count < 3 && hourPart >= 11 && hourPart % 3 == 2) {
+                        let h12 = hourPart == 0 ? 12 : (hourPart > 12 ? hourPart - 12 : hourPart)
+                        let ampm = hourPart >= 12 ? "PM" : "AM"
+                        let label = "\(h12) \(ampm)"
+                        let temp = Int(round(hourly.temperature2m[idx]))
+                        let icon = Self.mapWeatherCode(hourly.weatherCode[idx], temperature: hourly.temperature2m[idx]).icon
+                        
+                        if !items.contains(where: { $0.time == label }) {
+                            items.append((time: label, temp: temp, icon: icon))
+                        }
+                    }
+                }
+                
+                if !items.isEmpty {
+                    self.hourlyForecast = items
+                }
+            }
+            
+            isLoading = false
+            return decoded
+        } catch {
+            isLoading = false
+            lastError = error.localizedDescription
+            throw error
         }
-        
-        return try JSONDecoder().decode(OpenMeteoResponse.self, from: data)
+    }
+    
+    /// Convenience fetch with Sri Lanka coordinates
+    @discardableResult
+    public func fetchWeather() async throws -> OpenMeteoResponse {
+        return try await fetchWeather(latitude: defaultLatitude, longitude: defaultLongitude)
     }
     
     /// 3. Helper to translate WMO weather codes into conditions, SF Symbols, and cooling demand advice

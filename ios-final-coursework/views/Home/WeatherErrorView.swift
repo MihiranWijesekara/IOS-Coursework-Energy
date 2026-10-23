@@ -117,9 +117,14 @@ public struct WeatherErrorView: View {
                     
                     Spacer(minLength: 40)
                     
-                    // Retry Button
-                    GradientButton(title: "Retry") {
-                        navState.navigate(to: .weatherDetails)
+                    // Try Again Button
+                    GradientButton(title: "Try Again") {
+                        Task {
+                            _ = try? await WeatherService.shared.fetchWeather()
+                            await MainActor.run {
+                                navState.navigate(to: .weatherDetails)
+                            }
+                        }
                     }
                     .padding(.bottom, 24)
                 }

@@ -10,14 +10,33 @@ import SwiftData
 
 public struct SavingsSimulatorView: View {
     @EnvironmentObject var navState: AppNavigationState
+    @Environment(\.modelContext) private var modelContext
+    
     @Query(sort: \ElectricityBill.periodEnd, order: .reverse) private var savedBills: [ElectricityBill]
+    @Query(sort: \SavedBill.scannedDate, order: .reverse) private var pdfSavedBills: [SavedBill]
     @Query(sort: \Appliance.name) private var savedAppliances: [Appliance]
+    @Query(sort: \SavingsScenario.createdAt, order: .reverse) private var savedScenarios: [SavingsScenario]
     
     @State private var dailyHours: Double = 4.0
     
+    private var currencySymbol: String {
+        let raw = pdfSavedBills.first?.currency ?? savedBills.first?.currency ?? "LKR"
+        return (raw.uppercased() == "USD" || raw == "$") ? "$" : "Rs."
+    }
+    
+    private var effectiveTariffRate: Double {
+        if let pdf = pdfSavedBills.first, pdf.totalKWh > 0, pdf.totalAmount > 0 {
+            return pdf.totalAmount / pdf.totalKWh
+        }
+        if let bill = savedBills.first, bill.consumptionKwh > 0, bill.billAmount > 0 {
+            return bill.billAmount / bill.consumptionKwh
+        }
+        return currencySymbol == "$" ? 0.288 : 30.0
+    }
+    
     // Active simulated appliance
     private var activeAppliance: Appliance? {
-        if let id = navState.selectedApplianceId {
+        if let id = navState.selectedApplianceID ?? navState.selectedApplianceId {
             return savedAppliances.first(where: { $0.id == id })
         }
         return savedAppliances.first(where: { $0.name.lowercased() == navState.selectedAppliance.lowercased() })
@@ -28,9 +47,7 @@ public struct SavingsSimulatorView: View {
     }
     
     private var simulationMetrics: (kwhSaved: Double, lkrSaved: Double, oldKwh: Double, newKwh: Double) {
-        let latestBill = savedBills.first
-        let billKwh = latestBill?.consumptionKwh ?? 180.0
-        let tariffRate = ApplianceCalibrationService.shared.effectiveTariffRate(bill: latestBill)
+        let billKwh = pdfSavedBills.first?.totalKWh ?? savedBills.first?.consumptionKwh ?? 180.0
         
         let oldCalibratedKwh: Double
         if let app = activeAppliance {
@@ -49,9 +66,9 @@ public struct SavingsSimulatorView: View {
         let kwhPerHour = oldCalibratedKwh / safeBaseHours
         let newCalibratedKwh = kwhPerHour * dailyHours
         let savedKwh = max(0.0, oldCalibratedKwh - newCalibratedKwh)
-        let savedLkr = savedKwh * tariffRate
+        let savedCost = savedKwh * effectiveTariffRate
         
-        return (savedKwh, savedLkr, oldCalibratedKwh, newCalibratedKwh)
+        return (savedKwh, savedCost, oldCalibratedKwh, newCalibratedKwh)
     }
     
     public init() {}
@@ -83,7 +100,7 @@ public struct SavingsSimulatorView: View {
                             .lineSpacing(2)
                     }
                     
-                    // Selected Appliance Row (Tapping opens appliance list or detail)
+                    // Selected Appliance Row (Tapping opens appliance list)
                     Button(action: {
                         navState.navigate(to: .appliances)
                     }) {
@@ -202,7 +219,7 @@ public struct SavingsSimulatorView: View {
                                 .foregroundColor(.white)
                         }
                         
-                        Text(String(format: "≈ LKR %.0f/month", simulationMetrics.lkrSaved))
+                        Text(String(format: "≈ \(currencySymbol) %.0f/month", simulationMetrics.lkrSaved))
                             .font(.system(size: 22, weight: .bold))
                             .foregroundColor(.white)
                         
@@ -218,9 +235,103 @@ public struct SavingsSimulatorView: View {
                     .cornerRadius(20)
                     .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
                     
+                    // Saved Scenarios Section
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Text("Saved Scenarios")
+                                .font(.system(size: 19, weight: .bold))
+                                .foregroundColor(EnergyLensTheme.textPrimary)
+                            
+                            Spacer()
+                            
+                            Text("\(savedScenarios.count)")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundColor(EnergyLensTheme.accentGreen)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 2)
+                                .background(EnergyLensTheme.mintHighlight)
+                                .clipShape(Capsule())
+                        }
+                        
+                        if savedScenarios.isEmpty {
+                            // Clean Empty State
+                            VStack(spacing: 12) {
+                                Image(systemName: "lightbulb.slash")
+                                    .font(.system(size: 32))
+                                    .foregroundColor(EnergyLensTheme.textSecondary)
+                                    .padding(.top, 8)
+                                
+                                Text("No Saved Scenarios")
+                                    .font(.system(size: 16, weight: .bold))
+                                    .foregroundColor(EnergyLensTheme.textPrimary)
+                                
+                                Text("Tap 'Add Scenario' below to model custom appliance reductions and calculate your monthly bill savings.")
+                                    .font(.system(size: 13, weight: .regular))
+                                    .foregroundColor(EnergyLensTheme.textSecondary)
+                                    .multilineTextAlignment(.center)
+                                    .lineSpacing(2)
+                                    .padding(.horizontal, 16)
+                                    .padding(.bottom, 8)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 20)
+                            .background(Color.white)
+                            .cornerRadius(16)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 16)
+                                    .stroke(EnergyLensTheme.borderSubtle, lineWidth: 1)
+                            )
+                        } else {
+                            ForEach(savedScenarios) { scenario in
+                                HStack(spacing: 12) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(scenario.scenarioTitle)
+                                            .font(.system(size: 15, weight: .bold))
+                                            .foregroundColor(EnergyLensTheme.textPrimary)
+                                        
+                                        Text("\(scenario.applianceName) · \(String(format: "%.0f", scenario.originalHoursPerDay))h → \(String(format: "%.0f", scenario.targetHoursPerDay))h/day")
+                                            .font(.system(size: 13, weight: .regular))
+                                            .foregroundColor(EnergyLensTheme.textSecondary)
+                                        
+                                        Text("Save \(String(format: "%.0f", scenario.estimatedKwhSaved)) kWh · ≈ \(currencySymbol) \(String(format: "%.0f", scenario.estimatedLkrSaved))/mo")
+                                            .font(.system(size: 13, weight: .semibold))
+                                            .foregroundColor(EnergyLensTheme.accentGreen)
+                                    }
+                                    
+                                    Spacer()
+                                    
+                                    // Delete Scenario Button
+                                    Button(action: {
+                                        withAnimation {
+                                            modelContext.delete(scenario)
+                                            try? modelContext.save()
+                                        }
+                                    }) {
+                                        Image(systemName: "trash")
+                                            .font(.system(size: 15))
+                                            .foregroundColor(Color.red.opacity(0.8))
+                                            .frame(width: 36, height: 36)
+                                            .background(Color.red.opacity(0.08))
+                                            .clipShape(Circle())
+                                    }
+                                    .buttonStyle(BorderlessButtonStyle())
+                                }
+                                .padding(16)
+                                .background(Color.white)
+                                .cornerRadius(16)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 16)
+                                        .stroke(EnergyLensTheme.borderSubtle, lineWidth: 1)
+                                )
+                            }
+                        }
+                    }
+                    .padding(.top, 4)
+                    
                     // Action Buttons
                     VStack(spacing: 12) {
                         GradientButton(title: "Run Simulation") {
+                            navState.simulationHours = dailyHours
                             navState.navigate(to: .simulationResult)
                         }
                         

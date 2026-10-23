@@ -28,6 +28,7 @@ public struct OpenMeteoResponse: Codable {
     public let longitude: Double?
     public let timezone: String?
     public let current: CurrentWeather?
+    public let hourly: HourlyWeather?
     public let daily: DailyWeather?
 }
 
@@ -43,6 +44,18 @@ public struct CurrentWeather: Codable {
         case temperature2m = "temperature_2m"
         case relativeHumidity2m = "relative_humidity_2m"
         case windSpeed10m = "wind_speed_10m"
+        case weatherCode = "weather_code"
+    }
+}
+
+public struct HourlyWeather: Codable {
+    public let time: [String]
+    public let temperature2m: [Double]
+    public let weatherCode: [Int]
+    
+    enum CodingKeys: String, CodingKey {
+        case time
+        case temperature2m = "temperature_2m"
         case weatherCode = "weather_code"
     }
 }

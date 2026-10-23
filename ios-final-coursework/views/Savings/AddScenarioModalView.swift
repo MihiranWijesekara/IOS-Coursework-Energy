@@ -11,6 +11,11 @@ import SwiftData
 public struct AddScenarioModalView: View {
     @EnvironmentObject var navState: AppNavigationState
     @Environment(\.modelContext) private var modelContext
+    
+    @Query(sort: \SavedBill.scannedDate, order: .reverse) private var pdfSavedBills: [SavedBill]
+    @Query(sort: \ElectricityBill.periodEnd, order: .reverse) private var savedBills: [ElectricityBill]
+    @Query(sort: \Appliance.name) private var savedAppliances: [Appliance]
+    
     @State private var selectedAppliance: String = "Air Conditioner"
     @State private var savingAdjustment: String = "Reduce hours per day"
     @State private var newUsageHours: Double = 4.0
@@ -19,6 +24,24 @@ public struct AddScenarioModalView: View {
     let adjustments = ["Reduce hours per day", "Turn off on peak hours", "Upgrade to Inverter"]
     
     public init() {}
+    
+    private var currencySymbol: String {
+        let raw = pdfSavedBills.first?.currency ?? savedBills.first?.currency ?? "LKR"
+        return (raw.uppercased() == "USD" || raw == "$") ? "$" : "Rs."
+    }
+    
+    private var effectiveTariffRate: Double {
+        if let latestBill = pdfSavedBills.first, latestBill.totalKWh > 0 {
+            let monthly = (latestBill.hasMonthlyBillValue && latestBill.monthlyBill > 0) ? latestBill.monthlyBill : latestBill.totalAmount
+            if monthly > 0 {
+                return monthly / latestBill.totalKWh
+            }
+        }
+        if let bill = savedBills.first, bill.consumptionKwh > 0, bill.billAmount > 0 {
+            return bill.billAmount / bill.consumptionKwh
+        }
+        return currencySymbol == "$" ? 0.288 : 30.0
+    }
     
     public var body: some View {
         ZStack {
@@ -63,15 +86,18 @@ public struct AddScenarioModalView: View {
                             navState.selectedAppliance = selectedAppliance
                             navState.simulationHours = newUsageHours
                             
-                            // Save scenario record
+                            let kwhSaved = max(0.0, (navState.currentAcHours - newUsageHours) * 12.0)
+                            let dollarSavedPerMonth = kwhSaved * effectiveTariffRate
+                            
+                            // Save scenario record into SwiftData
                             let scenario = SavingsScenario(
                                 scenarioTitle: savingAdjustment,
                                 applianceName: selectedAppliance,
                                 adjustmentType: savingAdjustment,
                                 originalHoursPerDay: navState.currentAcHours,
                                 targetHoursPerDay: newUsageHours,
-                                estimatedKwhSaved: max(0, (navState.currentAcHours - newUsageHours) * 12.0),
-                                estimatedLkrSaved: max(0, (navState.currentAcHours - newUsageHours) * 12.0 * 43.75)
+                                estimatedKwhSaved: kwhSaved,
+                                estimatedLkrSaved: dollarSavedPerMonth
                             )
                             modelContext.insert(scenario)
                             try? modelContext.save()
@@ -104,8 +130,9 @@ public struct AddScenarioModalView: View {
                                 .font(.system(size: 13, weight: .regular))
                                 .foregroundColor(EnergyLensTheme.textSecondary)
                             
+                            let availableList = savedAppliances.isEmpty ? appliances : savedAppliances.map { $0.name }
                             Menu {
-                                ForEach(appliances, id: \.self) { app in
+                                ForEach(availableList, id: \.self) { app in
                                     Button(app) { selectedAppliance = app }
                                 }
                             } label: {
@@ -211,7 +238,7 @@ public struct AddScenarioModalView: View {
                         }
                         
                         // Footnote
-                        Text("Current usage · 6 h/day. The scenario uses your calibrated appliance contribution.")
+                        Text("Current usage · \(String(format: "%.0f", navState.currentAcHours)) h/day. Savings calculated at \(currencySymbol) \(String(format: "%.2f", effectiveTariffRate))/kWh based on your bill.")
                             .font(.system(size: 13, weight: .regular))
                             .foregroundColor(EnergyLensTheme.textSecondary)
                             .lineSpacing(2)

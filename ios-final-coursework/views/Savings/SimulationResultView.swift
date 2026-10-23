@@ -5,18 +5,18 @@
 //  Created by student5 on 2026-10-16.
 //
 
-
 import SwiftUI
 import SwiftData
 
 public struct SimulationResultView: View {
     @EnvironmentObject var navState: AppNavigationState
     @Query(sort: \ElectricityBill.periodEnd, order: .reverse) private var savedBills: [ElectricityBill]
+    @Query(sort: \SavedBill.scannedDate, order: .reverse) private var pdfSavedBills: [SavedBill]
     @Query(sort: \Appliance.name) private var savedAppliances: [Appliance]
     
     // Active simulated appliance
     private var activeAppliance: Appliance? {
-        if let id = navState.selectedApplianceId {
+        if let id = navState.selectedApplianceID ?? navState.selectedApplianceId {
             return savedAppliances.first(where: { $0.id == id })
         }
         return savedAppliances.first(where: { $0.name.lowercased() == navState.selectedAppliance.lowercased() })
@@ -30,10 +30,35 @@ public struct SimulationResultView: View {
         return navState.simulationHours
     }
     
+    private var currencySymbol: String {
+        let raw = pdfSavedBills.first?.currency ?? savedBills.first?.currency ?? "LKR"
+        return (raw.uppercased() == "USD" || raw == "$") ? "$" : "Rs."
+    }
+    
+    private var effectiveTariffRate: Double {
+        if let pdf = pdfSavedBills.first, pdf.totalKWh > 0, pdf.totalAmount > 0 {
+            return pdf.totalAmount / pdf.totalKWh
+        }
+        if let bill = savedBills.first, bill.consumptionKwh > 0, bill.billAmount > 0 {
+            return bill.billAmount / bill.consumptionKwh
+        }
+        return currencySymbol == "$" ? 0.288 : 30.0
+    }
+    
+    private var currentMonthlyBill: Double {
+        if let pdf = pdfSavedBills.first, pdf.totalAmount > 0 {
+            return pdf.totalAmount
+        }
+        if let bill = savedBills.first, bill.billAmount > 0 {
+            return bill.billAmount
+        }
+        // Fallback: sum of calibrated appliances monthly cost
+        let totalAppKwh = savedAppliances.reduce(0.0) { $0 + $1.estimatedMonthlyKWh }
+        return totalAppKwh > 0 ? (totalAppKwh * effectiveTariffRate) : (currencySymbol == "$" ? 120.0 : 8500.0)
+    }
+    
     private var metrics: (savedKwh: Double, savedLkr: Double, beforeKwh: Double, afterKwh: Double, appName: String, monthName: String) {
-        let latestBill = savedBills.first
-        let billKwh = latestBill?.consumptionKwh ?? 180.0
-        let tariffRate = ApplianceCalibrationService.shared.effectiveTariffRate(bill: latestBill)
+        let billKwh = pdfSavedBills.first?.totalKWh ?? savedBills.first?.consumptionKwh ?? 180.0
         
         let beforeKwh: Double
         if let app = activeAppliance {
@@ -51,15 +76,23 @@ public struct SimulationResultView: View {
         let kwhPerHour = beforeKwh / safeBaseHours
         let afterKwh = kwhPerHour * simulatedHours
         let savedKwh = max(0.0, beforeKwh - afterKwh)
-        let savedLkr = savedKwh * tariffRate
+        let savedAmount = savedKwh * effectiveTariffRate
         
         let name = activeAppliance?.name ?? navState.selectedAppliance
         
-        let monthFormatter = DateFormatter()
-        monthFormatter.dateFormat = "MMMM"
-        let month = latestBill != nil ? monthFormatter.string(from: latestBill!.periodEnd) : "August"
+        let monthName: String = {
+            if let pdf = pdfSavedBills.first, !pdf.billingMonth.isEmpty {
+                return pdf.billingMonth
+            }
+            if let bill = savedBills.first {
+                let df = DateFormatter()
+                df.dateFormat = "MMMM"
+                return df.string(from: bill.periodEnd)
+            }
+            return "Current"
+        }()
         
-        return (savedKwh, savedLkr, beforeKwh, afterKwh, name, month)
+        return (savedKwh, savedAmount, beforeKwh, afterKwh, name, monthName)
     }
     
     public init() {}
@@ -112,9 +145,13 @@ public struct SimulationResultView: View {
                                 .foregroundColor(.white)
                         }
                         
-                        Text(String(format: "≈ LKR %.0f/month", metrics.savedLkr))
+                        Text(String(format: "≈ \(currencySymbol) %.0f/month", metrics.savedLkr))
                             .font(.system(size: 22, weight: .bold))
                             .foregroundColor(.white)
+                        
+                        Text("Bill impact: \(currencySymbol) \(String(format: "%.0f", currentMonthlyBill)) → \(currencySymbol) \(String(format: "%.0f", max(0, currentMonthlyBill - metrics.savedLkr)))")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(Color(red: 0.72, green: 0.92, blue: 0.82))
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(20)
@@ -193,7 +230,7 @@ public struct SimulationResultView: View {
                     .cornerRadius(18)
                     
                     // Footnote
-                    Text("A calibrated scenario based on your \(metrics.monthName) bill. Actual savings depend on settings, weather and usage.")
+                    Text("A calibrated scenario based on your \(metrics.monthName) bill. Current bill: \(currencySymbol) \(String(format: "%.0f", currentMonthlyBill)). Actual savings depend on ambient temperature and tariffs.")
                         .font(.system(size: 13, weight: .regular))
                         .foregroundColor(EnergyLensTheme.textSecondary)
                         .lineSpacing(2)

@@ -119,6 +119,19 @@ public final class Appliance {
     public var estimatedDailyAverageKwh: Double {
         return estimatedMonthlyKwh / 30.0
     }
+
+    public var wattage: Int {
+        get { powerW }
+        set { powerW = newValue }
+    }
+
+    public var estimatedMonthlyKWh: Double {
+        estimatedMonthlyKwh
+    }
+
+    public var iconName: String {
+        ApplianceCalibrationService.shared.iconForCategory(category ?? name)
+    }
 }
 
 // MARK: - Savings Scenario Model

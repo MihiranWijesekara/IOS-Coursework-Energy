@@ -726,8 +726,33 @@ public struct ReviewBillView: View {
                 navState.selectedBillId = savedBill.id
             }
 
+            // Also persist into SavedBill model for full specification persistence
+            var draftToPersist = navState.currentBillDraft
+            if draftToPersist.accountNumber.isEmpty {
+                draftToPersist.accountNumber = accountNumber
+                draftToPersist.customerName = customerName
+                draftToPersist.providerName = provider
+                draftToPersist.billingMonth = billingPeriod
+                draftToPersist.readingDate = readingDate
+                draftToPersist.dueDate = dueDate
+                draftToPersist.previousReading = previousReading.replacingOccurrences(of: " kWh", with: "")
+                draftToPersist.currentReading = currentReading.replacingOccurrences(of: " kWh", with: "")
+                draftToPersist.totalKWh = consumption.replacingOccurrences(of: " kWh", with: "")
+                draftToPersist.electricityCharge = currentCharge.replacingOccurrences(of: "Rs. ", with: "").replacingOccurrences(of: "$", with: "")
+                draftToPersist.sscLevy = taxesAndLevies.replacingOccurrences(of: "Rs. ", with: "").replacingOccurrences(of: "$", with: "")
+                draftToPersist.monthlyBill = monthlyBill.replacingOccurrences(of: "Rs. ", with: "").replacingOccurrences(of: "$", with: "")
+                draftToPersist.previousBalance = previousBalance.replacingOccurrences(of: "Rs. ", with: "").replacingOccurrences(of: "$", with: "")
+                draftToPersist.payments = payments.replacingOccurrences(of: "Rs. ", with: "").replacingOccurrences(of: "$", with: "")
+                draftToPersist.outstandingBalance = outstandingBalance.replacingOccurrences(of: "Rs. ", with: "").replacingOccurrences(of: "$", with: "")
+                draftToPersist.totalAmount = totalAmountPayable.replacingOccurrences(of: "Rs. ", with: "").replacingOccurrences(of: "$", with: "")
+                draftToPersist.rawExtractedText = rawText
+            }
+            try? SwiftDataBillService.shared.saveReviewedBill(from: draftToPersist, userEmail: navState.email, in: modelContext)
+
+            // Clear import screens from navigationStack so pressing Back returns cleanly to .home or .billHistory
+            navState.navigationStack.removeAll { $0 == .selectBillImage || $0 == .scanningBill || $0 == .reviewBill }
             isSavingBill = false
-            navState.navigate(to: .billHistory)
+            navState.navigate(to: .billAnalysisResult)
         } catch {
             isSavingBill = false
             saveError = "Unable to save bill into SwiftData: \(error.localizedDescription)"

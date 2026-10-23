@@ -91,6 +91,10 @@ public final class SwiftDataApplianceService {
         try context.save()
     }
 
+    public func deleteAppliance(_ appliance: Appliance, in context: ModelContext) throws {
+        try deleteAppliance(context: context, appliance: appliance)
+    }
+
     /// Seeds standard household appliances matching Sri Lankan household profiles and coursework specifications
     @discardableResult
     public func seedDefaultHouseholdAppliances(context: ModelContext) throws -> [Appliance] {

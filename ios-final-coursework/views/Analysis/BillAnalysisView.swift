@@ -11,6 +11,11 @@ import SwiftData
 public struct BillAnalysisView: View {
     @EnvironmentObject var navState: AppNavigationState
     @Query(sort: \ElectricityBill.periodEnd, order: .reverse) private var savedBills: [ElectricityBill]
+    @Query(sort: \SavedBill.scannedDate, order: .reverse) private var pdfSavedBills: [SavedBill]
+    
+    private var hasBills: Bool {
+        !savedBills.isEmpty || !pdfSavedBills.isEmpty
+    }
     
     public init() {}
     
@@ -70,53 +75,80 @@ public struct BillAnalysisView: View {
                             .font(.system(size: 18, weight: .bold))
                             .foregroundColor(EnergyLensTheme.textPrimary)
                         
-                        Button(action: {
-                            if savedBills.isEmpty {
-                                navState.navigate(to: .billHistoryEmpty)
-                            } else {
+                        if hasBills {
+                            Button(action: {
                                 navState.navigate(to: .billAnalysisResult)
-                            }
-                        }) {
-                            HStack(alignment: .center) {
-                                VStack(alignment: .leading, spacing: 4) {
+                            }) {
+                                HStack(alignment: .center) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        if let latest = savedBills.first {
+                                            let formatter = DateFormatter()
+                                            let _ = formatter.dateFormat = "MMMM yyyy"
+                                            Text(formatter.string(from: latest.periodEnd))
+                                                .font(.system(size: 16, weight: .bold))
+                                                .foregroundColor(Color(red: 0.12, green: 0.38, blue: 0.28))
+                                            
+                                            let periodStr = SwiftDataBillService.formatPeriod(start: latest.periodStart, end: latest.periodEnd)
+                                            Text("\(periodStr) · \(Int(round(latest.consumptionKwh))) kWh")
+                                                .font(.system(size: 13, weight: .regular))
+                                                .foregroundColor(EnergyLensTheme.textSecondary)
+                                        } else if let pdfLatest = pdfSavedBills.first {
+                                            Text(pdfLatest.billingMonth.isEmpty ? "Recent Bill" : pdfLatest.billingMonth)
+                                                .font(.system(size: 16, weight: .bold))
+                                                .foregroundColor(Color(red: 0.12, green: 0.38, blue: 0.28))
+                                            Text("\(Int(round(pdfLatest.totalKWh))) kWh")
+                                                .font(.system(size: 13, weight: .regular))
+                                                .foregroundColor(EnergyLensTheme.textSecondary)
+                                        }
+                                    }
+                                    
+                                    Spacer()
+                                    
                                     if let latest = savedBills.first {
-                                        let formatter = DateFormatter()
-                                        let _ = formatter.dateFormat = "MMMM yyyy"
-                                        Text(formatter.string(from: latest.periodEnd))
+                                        let curr = (latest.currency.uppercased() == "USD" || latest.currency == "$") ? "$" : "Rs."
+                                        Text("\(curr) \(String(format: "%.2f", latest.billAmount))")
                                             .font(.system(size: 16, weight: .bold))
                                             .foregroundColor(Color(red: 0.12, green: 0.38, blue: 0.28))
-                                        
-                                        let periodStr = SwiftDataBillService.formatPeriod(start: latest.periodStart, end: latest.periodEnd)
-                                        Text("\(periodStr) · \(Int(round(latest.consumptionKwh))) kWh")
-                                            .font(.system(size: 13, weight: .regular))
-                                            .foregroundColor(EnergyLensTheme.textSecondary)
-                                    } else {
-                                        Text("August 2025")
+                                    } else if let pdfLatest = pdfSavedBills.first {
+                                        Text("Rs. \(String(format: "%.2f", pdfLatest.totalAmount))")
                                             .font(.system(size: 16, weight: .bold))
                                             .foregroundColor(Color(red: 0.12, green: 0.38, blue: 0.28))
-                                        
-                                        Text("01 Aug – 31 Aug · 180 kWh")
-                                            .font(.system(size: 13, weight: .regular))
-                                            .foregroundColor(EnergyLensTheme.textSecondary)
                                     }
                                 }
-                                
-                                Spacer()
-                                
-                                if let latest = savedBills.first {
-                                    Text(String(format: "LKR %.2f", latest.billAmount))
-                                        .font(.system(size: 16, weight: .bold))
-                                        .foregroundColor(Color(red: 0.12, green: 0.38, blue: 0.28))
-                                } else {
-                                    Text("LKR 7,850")
-                                        .font(.system(size: 16, weight: .bold))
-                                        .foregroundColor(Color(red: 0.12, green: 0.38, blue: 0.28))
-                                }
+                                .padding(.vertical, 16)
+                                .padding(.horizontal, 18)
+                                .background(EnergyLensTheme.mintHighlight)
+                                .cornerRadius(14)
                             }
-                            .padding(.vertical, 16)
-                            .padding(.horizontal, 18)
-                            .background(EnergyLensTheme.mintHighlight)
-                            .cornerRadius(14)
+                        } else {
+                            Button(action: {
+                                navState.navigate(to: .selectBillImage)
+                            }) {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "doc.badge.plus")
+                                        .font(.system(size: 24))
+                                        .foregroundColor(EnergyLensTheme.accentGreen)
+                                    
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("No bills imported yet")
+                                            .font(.system(size: 15, weight: .bold))
+                                            .foregroundColor(EnergyLensTheme.textPrimary)
+                                        Text("Import your electricity bill to see your real consumption")
+                                            .font(.system(size: 12, weight: .regular))
+                                            .foregroundColor(EnergyLensTheme.textSecondary)
+                                    }
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .foregroundColor(EnergyLensTheme.textSecondary)
+                                }
+                                .padding(16)
+                                .background(Color(red: 0.96, green: 0.97, blue: 0.98))
+                                .cornerRadius(14)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 14)
+                                        .stroke(EnergyLensTheme.borderSubtle, lineWidth: 1)
+                                )
+                            }
                         }
                     }
                     .padding(.top, 6)

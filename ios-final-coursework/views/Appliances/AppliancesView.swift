@@ -87,6 +87,7 @@ public struct AppliancesView: View {
                                 
                                 Button(action: {
                                     navState.selectedAppliance = appliance.name
+                                    navState.selectedApplianceID = appliance.id
                                     navState.selectedApplianceId = appliance.id
                                     navState.navigate(to: .applianceDetail)
                                 }) {
