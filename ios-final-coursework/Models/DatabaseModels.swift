@@ -517,3 +517,9 @@ public final class SavedBill {
     }
 }
 
+// MARK: - SwiftData Schema Aliases
+public typealias SavedUser = User
+public typealias SavedAppliance = Appliance
+public typealias SavedScenario = SavingsScenario
+
+

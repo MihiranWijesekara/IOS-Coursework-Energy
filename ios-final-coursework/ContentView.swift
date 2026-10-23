@@ -93,6 +93,7 @@ public struct ContentView: View {
                 }
             }
             .environmentObject(navState)
+            .environment(navState)
             
             // Floating Quick Screen Switcher (For testing all 33 PDF pages directly)
             VStack(spacing: 0) {

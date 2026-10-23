@@ -7,6 +7,7 @@
 
 import SwiftUI
 import Combine
+import Observation
 
 public enum AppScreen: String, CaseIterable, Identifiable {
     case splash = "1. Splash"
@@ -92,7 +93,7 @@ public enum MainTab: String, CaseIterable {
     case profile = "Profile"
 }
 
-public final class AppNavigationState: ObservableObject {
+public final class AppNavigationState: ObservableObject, Observable {
     @Published public var currentScreen: AppScreen = .splash
     @Published public var selectedTab: MainTab = .home
     
@@ -151,4 +152,16 @@ public final class AppNavigationState: ObservableObject {
 }
 
 public typealias NavigationModel = AppNavigationState
+
+private struct NavigationModelKey: EnvironmentKey {
+    static let defaultValue: NavigationModel = NavigationModel()
+}
+
+extension EnvironmentValues {
+    public var navigationModel: NavigationModel {
+        get { self[NavigationModelKey.self] }
+        set { self[NavigationModelKey.self] = newValue }
+    }
+}
+
 

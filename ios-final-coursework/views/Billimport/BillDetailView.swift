@@ -12,6 +12,8 @@ public struct BillDetailView: View {
     @EnvironmentObject var navState: AppNavigationState
     @Environment(\.modelContext) private var modelContext
     @Query private var allBills: [ElectricityBill]
+
+    private var navModel: AppNavigationState { navState }
     
     public let billId: UUID?
     
@@ -52,18 +54,33 @@ public struct BillDetailView: View {
                 
                 Spacer()
                 
-                if bill != nil {
-                    Button(action: openEditModal) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "pencil")
-                            Text("Edit")
+                if let bill = bill {
+                    HStack(spacing: 8) {
+                        Button(action: openEditModal) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "pencil")
+                                Text("Edit")
+                            }
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(EnergyLensTheme.accentGreen)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(EnergyLensTheme.mintHighlight)
+                            .cornerRadius(8)
                         }
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(EnergyLensTheme.accentGreen)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(EnergyLensTheme.mintHighlight)
-                        .cornerRadius(8)
+
+                        Button(role: .destructive) {
+                            try? SwiftDataBillService.shared.deleteBill(bill, in: modelContext)
+                            navModel.navigateBack()
+                        } label: {
+                            Label("Delete Bill", systemImage: "trash")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(.red)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(Color.red.opacity(0.08))
+                                .cornerRadius(8)
+                        }
                     }
                 }
             }
@@ -355,8 +372,8 @@ public struct BillDetailView: View {
         .alert("Delete Electricity Bill?", isPresented: $showDeleteConfirm) {
             Button("Delete", role: .destructive) {
                 if let b = bill {
-                    try? SwiftDataBillService.shared.deleteBill(context: modelContext, bill: b)
-                    navState.navigate(to: .billHistory)
+                    try? SwiftDataBillService.shared.deleteBill(b, in: modelContext)
+                    navModel.navigateBack()
                 }
             }
             Button("Cancel", role: .cancel) {}

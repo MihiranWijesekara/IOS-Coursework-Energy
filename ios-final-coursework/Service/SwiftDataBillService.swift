@@ -140,6 +140,10 @@ public final class SwiftDataBillService {
         context.delete(bill)
         try context.save()
     }
+
+    public func deleteBill(_ bill: ElectricityBill, in context: ModelContext) throws {
+        try deleteBill(context: context, bill: bill)
+    }
     
     /// Calculate month-over-month comparison between latest bill and previous bill
     public func calculateComparison(latest: ElectricityBill, previous: ElectricityBill?) -> (percentageChange: Double, diffKwh: Double, isIncrease: Bool, text: String) {
@@ -358,6 +362,10 @@ public final class SwiftDataBillService {
     public func deleteBill(_ bill: SavedBill, in context: ModelContext) throws {
         context.delete(bill)
         try context.save()
+    }
+
+    public func deleteBill(context: ModelContext, bill: SavedBill) throws {
+        try deleteBill(bill, in: context)
     }
 }
 
