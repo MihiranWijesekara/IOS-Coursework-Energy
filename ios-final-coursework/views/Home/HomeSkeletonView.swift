@@ -9,6 +9,19 @@ import SwiftUI
 
 public struct HomeSkeletonView: View {
     @EnvironmentObject var navState: AppNavigationState
+
+    private var greeting: String {
+        let hour = Calendar.current.component(.hour, from: Date())
+
+        switch hour {
+        case 5..<12:
+            return "Good morning"
+        case 12..<17:
+            return "Good afternoon"
+        default:
+            return "Good evening"
+        }
+    }
     
     public init() {}
     
@@ -41,7 +54,7 @@ public struct HomeSkeletonView: View {
                             .font(.system(size: 30, weight: .bold))
                             .foregroundColor(EnergyLensTheme.textPrimary)
                         
-                        Text("Good morning, \(navState.firstName)")
+                        Text("\(greeting), \(navState.firstName)")
                             .font(.system(size: 16, weight: .regular))
                             .foregroundColor(EnergyLensTheme.textSecondary)
                     }

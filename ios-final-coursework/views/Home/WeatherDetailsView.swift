@@ -11,11 +11,11 @@ public struct WeatherDetailsView: View {
     @EnvironmentObject var navState: AppNavigationState
     @ObservedObject private var weatherService = WeatherService.shared
     
-    @State private var tomorrowTemp: Double = 33.0
-    @State private var highTemp: Double = 34.0
-    @State private var lowTemp: Double = 27.0
-    @State private var rainProb: Int = 15
-    @State private var windSpeed: Double = 14.0
+    @State private var tomorrowTemp: Double?
+    @State private var highTemp: Double?
+    @State private var lowTemp: Double?
+    @State private var rainProb: Int?
+    @State private var windSpeed: Double?
     
     public init() {}
     
@@ -117,14 +117,14 @@ public struct WeatherDetailsView: View {
                                 .font(.system(size: 16, weight: .bold))
                                 .foregroundColor(EnergyLensTheme.textPrimary)
                             
-                            Text("High \(Int(round(highTemp)))°C · Low \(Int(round(lowTemp)))°C")
+                            Text("High \(temperatureText(highTemp)) · Low \(temperatureText(lowTemp))")
                                 .font(.system(size: 13, weight: .regular))
                                 .foregroundColor(EnergyLensTheme.textSecondary)
                         }
                         
                         Spacer()
                         
-                        Text("\(Int(round(tomorrowTemp)))°C")
+                        Text(temperatureText(tomorrowTemp))
                             .font(.system(size: 16, weight: .bold))
                             .foregroundColor(EnergyLensTheme.textPrimary)
                     }
@@ -140,9 +140,9 @@ public struct WeatherDetailsView: View {
                     HStack {
                         statColumn(label: "Humidity", value: "\(Int(round(weatherService.currentHumidity)))%")
                         Spacer()
-                        statColumn(label: "Wind", value: "\(Int(round(windSpeed))) km/h")
+                        statColumn(label: "Wind", value: windSpeed.map { "\(Int(round($0))) km/h" } ?? "—")
                         Spacer()
-                        statColumn(label: "Rain", value: "\(rainProb)%")
+                        statColumn(label: "Rain", value: rainProb.map { "\($0)%" } ?? "—")
                     }
                     .padding(.vertical, 16)
                     .padding(.horizontal, 24)
@@ -242,11 +242,22 @@ public struct WeatherDetailsView: View {
                     }
                 }
             }
+            if let current = forecast.current {
+                withAnimation {
+                    self.windSpeed = current.windSpeed10m
+                }
+            }
+
         } catch {
             print("Failed loading weather details: \(error.localizedDescription)")
             // Fallback to default Sri Lanka coordinates
             _ = try? await weatherService.fetchWeather()
         }
+    }
+
+    private func temperatureText(_ temperature: Double?) -> String {
+        guard let temperature else { return "—" }
+        return "\(Int(round(temperature)))°C"
     }
     
     @ViewBuilder

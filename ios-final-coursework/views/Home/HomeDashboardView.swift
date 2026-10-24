@@ -32,6 +32,19 @@ public struct HomeDashboardView: View {
         }
         return ("THIS MONTH · AUG 2025", 180, "LKR 7,850", "↑ 12.5% vs July · 160 kWh")
     }
+
+    private var greeting: String {
+        let hour = Calendar.current.component(.hour, from: Date())
+
+        switch hour {
+        case 5..<12:
+            return "Good morning"
+        case 12..<17:
+            return "Good afternoon"
+        default:
+            return "Good evening"
+        }
+    }
     
     public init() {}
     
@@ -77,7 +90,7 @@ public struct HomeDashboardView: View {
                     
                     // Greeting
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Good morning, \(navState.firstName)")
+                        Text("\(greeting), \(navState.firstName)")
                             .font(.system(size: 24, weight: .bold))
                             .foregroundColor(EnergyLensTheme.textPrimary)
                         
@@ -318,7 +331,6 @@ public struct HomeDashboardView: View {
         }
     }
     
-    // MARK: - Live Weather Integration & SwiftData Caching
     private func loadLiveWeather() async {
         let town = navState.town.isEmpty ? "Colombo" : navState.town
         isLoadingWeather = true
