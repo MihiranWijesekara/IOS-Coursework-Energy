@@ -14,10 +14,13 @@ public struct ProfileView: View {
     @Query private var users: [User]
     
     @AppStorage("userPasscode") private var storedPasscode: String = "123456"
+    @AppStorage("hasRegisteredAccount") private var hasRegisteredAccount: Bool = false
+    @AppStorage("lastLoggedInEmail") private var lastLoggedInEmail: String = ""
     
     // Sheet states
     @State private var showEditProfileSheet = false
     @State private var showChangePasscodeSheet = false
+    @State private var showResetAlert = false
     
     // Edit Profile form fields
     @State private var editFirstName = ""
@@ -168,6 +171,20 @@ public struct ProfileView: View {
                             .cornerRadius(14)
                             .shadow(color: Color.red.opacity(0.2), radius: 6, x: 0, y: 3)
                         }
+                        
+                        Button(action: {
+                            showResetAlert = true
+                        }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "trash")
+                                    .font(.system(size: 13))
+                                Text("Reset All Data (Fresh Launch Test)")
+                                    .font(.system(size: 13, weight: .medium))
+                            }
+                            .foregroundColor(EnergyLensTheme.textSecondary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                        }
                     }
                     .padding(.top, 4)
                     .padding(.bottom, 24)
@@ -195,6 +212,14 @@ public struct ProfileView: View {
         }
         .sheet(isPresented: $showChangePasscodeSheet) {
             changePasscodeSheet
+        }
+        .alert("Reset All Data?", isPresented: $showResetAlert) {
+            Button("Cancel", role: .cancel) {}
+            Button("Reset Everything", role: .destructive) {
+                resetAllData()
+            }
+        } message: {
+            Text("This will delete all saved users, bills, appliances, and passcodes so you can test from the first-time splash screen.")
         }
     }
     
@@ -358,6 +383,34 @@ public struct ProfileView: View {
                 try? await FirebaseRESTService.shared.syncUserProfile(user: user)
             }
         }
+    }
+    
+    private func resetAllData() {
+        // Delete all SwiftData records
+        try? modelContext.delete(model: User.self)
+        try? modelContext.delete(model: Appliance.self)
+        try? modelContext.delete(model: ElectricityBill.self)
+        try? modelContext.delete(model: SavedBill.self)
+        try? modelContext.delete(model: Prediction.self)
+        try? modelContext.delete(model: WeatherData.self)
+        try? modelContext.delete(model: SavingsScenario.self)
+        try? modelContext.save()
+        
+        // Reset AppStorage keys
+        hasRegisteredAccount = false
+        lastLoggedInEmail = ""
+        storedPasscode = "123456"
+        
+        // Reset navState
+        navState.firstName = ""
+        navState.lastName = ""
+        navState.email = ""
+        navState.phone = ""
+        navState.town = "Colombo"
+        navState.isAuthenticated = false
+        
+        // Navigate back to splash
+        navState.navigate(to: .splash)
     }
     
     @ViewBuilder
