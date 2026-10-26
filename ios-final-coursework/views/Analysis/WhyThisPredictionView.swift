@@ -6,11 +6,26 @@
 //
 
 import SwiftUI
+import SwiftData
 
 public struct WhyThisPredictionView: View {
     @EnvironmentObject var navState: AppNavigationState
+    @StateObject private var weatherService = WeatherService()
+    @Query(sort: \SavedBill.scannedDate, order: .reverse) private var savedBills: [SavedBill]
+    @Query(sort: \Appliance.name) private var savedAppliances: [Appliance]
+    @Query private var savedUsers: [User]
     
     public init() {}
+    
+    private var prediction: EnergyPrediction? {
+        EnergyPredictionService.shared.predictNextMonth(
+            bills: savedBills,
+            appliances: savedAppliances,
+            user: savedUsers.first,
+            temperatureC: weatherService.currentTemperature,
+            humidityPercent: weatherService.currentHumidity
+        )
+    }
     
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -41,16 +56,41 @@ public struct WhyThisPredictionView: View {
                         .font(.system(size: 19, weight: .bold))
                         .foregroundColor(EnergyLensTheme.textPrimary)
                     
-                    // Influences Card
-                    VStack(spacing: 16) {
-                        influenceRow(name: "Higher temperature forecast", value: "+8% usage", ratio: 0.90, color: Color(red: 0.12, green: 0.55, blue: 0.32))
-                        influenceRow(name: "Increased AC usage", value: "+5% usage", ratio: 0.55, color: Color(red: 0.08, green: 0.20, blue: 0.30))
-                        influenceRow(name: "Recent consumption trend", value: "+3% usage", ratio: 0.35, color: Color(red: 0.20, green: 0.50, blue: 0.70))
-                        influenceRow(name: "Other appliances", value: "+2% usage", ratio: 0.22, color: Color(red: 0.55, green: 0.40, blue: 0.80))
+                    if let p = prediction {
+                        VStack(spacing: 16) {
+                            // Card 1: Weather Impact
+                            influenceRow(
+                                name: "Weather impact · \(String(format: "%.1f", p.temperatureC))°C, \(String(format: "%.0f", p.humidityPercent))% humidity",
+                                value: "+\(String(format: "%.1f", p.coolingLoadImpactPercent))%",
+                                ratio: CGFloat(min(1.0, p.coolingLoadImpactPercent / 40.0)),
+                                color: Color(red: 0.12, green: 0.55, blue: 0.32))
+                            
+                            // Card 2: Historical Usage
+                            influenceRow(
+                                name: "Historical usage · \(p.billsAnalyzed) saved \(p.billsAnalyzed == 1 ? "bill" : "bills")",
+                                value: "\(String(format: "%.0f", p.historicalAvgKWh)) kWh/mo",
+                                ratio: ratio(p.historicalAvgKWh, of: p),
+                                color: Color(red: 0.08, green: 0.20, blue: 0.30))
+                            
+                            // Card 3: Appliance Calibration
+                            influenceRow(
+                                name: "Appliance calibration · \(p.calibratedApplianceCount) \(p.calibratedApplianceCount == 1 ? "appliance" : "appliances")",
+                                value: "\(String(format: "%.0f", p.applianceMonthlyKWh)) kWh/mo",
+                                ratio: ratio(p.applianceMonthlyKWh, of: p),
+                                color: Color(red: 0.20, green: 0.50, blue: 0.70))
+                        }
+                        .padding(18)
+                        .background(Color(red: 0.90, green: 0.96, blue: 0.98))
+                        .cornerRadius(18)
+                    } else {
+                        Text("Save at least one electricity bill to see what drives your prediction.")
+                            .font(.system(size: 14, weight: .regular))
+                            .foregroundColor(EnergyLensTheme.textSecondary)
+                            .padding(18)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color(red: 0.90, green: 0.96, blue: 0.98))
+                            .cornerRadius(18)
                     }
-                    .padding(18)
-                    .background(Color(red: 0.90, green: 0.96, blue: 0.98))
-                    .cornerRadius(18)
                     
                     // Lavender Callout Box: How to read these factors
                     HStack(alignment: .top, spacing: 14) {
@@ -64,7 +104,7 @@ public struct WhyThisPredictionView: View {
                                 .font(.system(size: 16, weight: .bold))
                                 .foregroundColor(EnergyLensTheme.textPrimary)
                             
-                            Text("Relative influences against the model baseline. They are not additive shares and do not sum to the 195 kWh forecast.")
+                            Text("Relative influences against the model baseline. They are not additive shares and do not sum to the \(prediction.map { String(format: "%.0f", $0.predictedKWh) } ?? "--") kWh forecast.")
                                 .font(.system(size: 13, weight: .regular))
                                 .foregroundColor(EnergyLensTheme.textSecondary)
                                 .lineSpacing(2)
@@ -75,7 +115,7 @@ public struct WhyThisPredictionView: View {
                     .cornerRadius(16)
                     
                     // Bottom Note
-                    Text("Warmer conditions and your AC profile are the strongest influences in this update. Try an AC schedule change in Savings.")
+                    Text("Weather, your saved bill history and calibrated appliances are combined by the \((prediction?.usedCoreML ?? false) ? "on-device Core ML model" : "regression model") to estimate next month's usage.")
                         .font(.system(size: 14, weight: .regular))
                         .foregroundColor(EnergyLensTheme.textSecondary)
                         .lineSpacing(2)
@@ -86,6 +126,14 @@ public struct WhyThisPredictionView: View {
             }
         }
         .background(Color.white.ignoresSafeArea())
+        .task {
+            _ = try? await weatherService.fetchWeather()
+        }
+    }
+    
+    private func ratio(_ value: Double, of p: EnergyPrediction) -> CGFloat {
+        let denom = max(p.predictedKWh, 1)
+        return CGFloat(min(1.0, max(0.0, value / denom)))
     }
     
     @ViewBuilder

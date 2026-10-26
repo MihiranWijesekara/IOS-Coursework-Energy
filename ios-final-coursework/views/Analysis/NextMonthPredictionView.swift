@@ -10,42 +10,42 @@ import SwiftData
 
 public struct NextMonthPredictionView: View {
     @EnvironmentObject var navState: AppNavigationState
-    @Query(sort: \ElectricityBill.periodEnd, order: .reverse) private var savedBills: [ElectricityBill]
+    @Environment(\.modelContext) private var modelContext
+    @StateObject private var weatherService = WeatherService()
     @Query(sort: \SavedBill.scannedDate, order: .reverse) private var pdfSavedBills: [SavedBill]
     @Query(sort: \Appliance.name) private var savedAppliances: [Appliance]
+    @Query private var savedUsers: [User]
     
     public init() {}
     
+    private var prediction: EnergyPrediction? {
+        EnergyPredictionService.shared.predictNextMonth(
+            bills: pdfSavedBills,
+            appliances: savedAppliances,
+            user: savedUsers.first,
+            temperatureC: weatherService.currentTemperature,
+            humidityPercent: weatherService.currentHumidity
+        )
+    }
+    
     private var hasBills: Bool {
-        !savedBills.isEmpty || !pdfSavedBills.isEmpty
+        prediction != nil
     }
     
     private var latestKwh: Double {
-        pdfSavedBills.first?.totalKWh ?? savedBills.first?.consumptionKwh ?? 0.0
-    }
-    
-    private var latestAmount: Double {
-        pdfSavedBills.first?.totalAmount ?? savedBills.first?.totalAmountPayable ?? 0.0
+        pdfSavedBills.first?.totalKWh ?? 0.0
     }
     
     private var currencySymbol: String {
-        let raw = pdfSavedBills.first?.currency ?? savedBills.first?.currency ?? "LKR"
-        return (raw.uppercased() == "USD" || raw == "$") ? "$" : "Rs."
-    }
-    
-    private var effectiveRate: Double {
-        if latestKwh > 0 && latestAmount > 0 {
-            return latestAmount / latestKwh
-        }
-        return currencySymbol == "$" ? 0.288 : 43.5
+        prediction?.currency ?? "Rs."
     }
     
     private var forecastKwh: Double {
-        max(1.0, round(latestKwh * 1.06))
+        round(prediction?.predictedKWh ?? 0)
     }
     
     private var forecastAmount: Double {
-        round(forecastKwh * effectiveRate)
+        round(prediction?.predictedCost ?? 0)
     }
     
     private var forecastMonthTitle: String {
@@ -62,18 +62,19 @@ public struct NextMonthPredictionView: View {
         let df = DateFormatter()
         df.dateFormat = "MMM"
         
+        // Real historical bills only (oldest -> newest, up to 5), no invented data
+        let recent = Array(pdfSavedBills.prefix(5).reversed())
+        let actuals: [CGFloat] = recent.map { CGFloat(round($0.totalKWh)) }
+        let forecast = CGFloat(forecastKwh)
+        let maxVal = max(actuals.max() ?? 0, forecast, 1) * 1.25
+        
         var monthNames: [String] = []
-        for i in (0...5).reversed() {
+        let count = actuals.count
+        for i in (0...count).reversed() {
             if let date = cal.date(byAdding: .month, value: -i + 1, to: Date()) {
                 monthNames.append(df.string(from: date))
             }
         }
-        
-        let base = latestKwh > 0 ? latestKwh : 180.0
-        let factors: [Double] = [0.82, 0.88, 0.94, 0.90, 1.0]
-        let actuals: [CGFloat] = factors.map { CGFloat(round($0 * base)) }
-        let forecast = CGFloat(forecastKwh)
-        let maxVal = max(actuals.max() ?? 200, forecast) * 1.25
         
         return (monthNames, actuals, forecast, maxVal)
     }
@@ -191,9 +192,11 @@ public struct NextMonthPredictionView: View {
                         .padding(.top, 4)
                     
                     VStack(spacing: 0) {
-                        factorRow(icon: "clock.arrow.circlepath", title: "Historical electricity usage (\(String(format: "%.0f", latestKwh)) kWh baseline)", showDivider: true)
-                        factorRow(icon: "sun.haze", title: "Live weather forecast & AC load impact", showDivider: true)
-                        factorRow(icon: "powerplug", title: "Appliance usage (\(savedAppliances.count) calibrated appliances)", showDivider: false)
+                        factorRow(icon: "cpu", title: (prediction?.usedCoreML ?? false) ? "On-device Core ML inference: Active" : "On-device Core ML inference: Inactive (regression fallback)", showDivider: true)
+                        factorRow(icon: "doc.text", title: "Historical Bills Analyzed: \(prediction?.billsAnalyzed ?? 0)", showDivider: true)
+                        factorRow(icon: "clock.arrow.circlepath", title: "Historical Avg: \(String(format: "%.0f", prediction?.historicalAvgKWh ?? 0)) kWh", showDivider: true)
+                        factorRow(icon: "powerplug", title: "Calibrated Appliances: \(String(format: "%.0f", prediction?.applianceMonthlyKWh ?? 0)) kWh/mo (\(savedAppliances.count))", showDivider: true)
+                        factorRow(icon: "sun.haze", title: "Current Weather Temperature: \(String(format: "%.1f", weatherService.currentTemperature))°C", showDivider: false)
                     }
                     .background(Color.white)
                     .cornerRadius(16)
@@ -220,6 +223,9 @@ public struct NextMonthPredictionView: View {
             }
         }
         .background(Color.white.ignoresSafeArea())
+        .task {
+            _ = try? await weatherService.fetchWeather()
+        }
     }
     
     @ViewBuilder

@@ -31,7 +31,7 @@ public final class WeatherService: ObservableObject {
     public let defaultLatitude: Double = 6.9271
     public let defaultLongitude: Double = 79.8612
     
-    private init() {
+    public init() {
         calculateAcImpact()
     }
     
