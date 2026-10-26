@@ -10,35 +10,88 @@ import SwiftData
 
 public struct BillAnalysisResultView: View {
     @EnvironmentObject var navState: AppNavigationState
-    @Query(sort: \ElectricityBill.periodEnd, order: .reverse) private var savedBills: [ElectricityBill]
     @Query(sort: \SavedBill.scannedDate, order: .reverse) private var pdfSavedBills: [SavedBill]
+    @Query(sort: \ElectricityBill.periodEnd, order: .reverse) private var savedBills: [ElectricityBill]
     
-    // Trend data
-    private let months = ["Apr", "May", "Jun", "Jul", "Aug"]
-    private let values: [CGFloat] = [140, 155, 165, 160, 180]
-    private let maxValue: CGFloat = 240
-    
-    // Computed active bill values (Latest saved bill or fallback sample)
+    // Computed active bill values (Latest saved bill or fallback)
     private var activeBill: (periodText: String, kwh: Double, amountText: String, comparisonText: String, isIncrease: Bool) {
-        if let latest = savedBills.first {
+        if let pdfLatest = pdfSavedBills.first {
+            let period = pdfLatest.billingMonth.isEmpty ? "Current Billing Period" : pdfLatest.billingMonth
+            let curr = (pdfLatest.currency.uppercased() == "USD" || pdfLatest.currency == "$") ? "$" : "Rs."
+            let billAmount = pdfLatest.monthlyBill > 0 ? pdfLatest.monthlyBill : pdfLatest.totalAmount
+            let amount = "\(curr) \(String(format: "%.2f", billAmount))"
+            
+            var comparison = "Latest imported bill"
+            var isIncrease = false
+            if pdfSavedBills.count > 1 {
+                let previous = pdfSavedBills[1]
+                if previous.totalKWh > 0 {
+                    let diff = pdfLatest.totalKWh - previous.totalKWh
+                    let pct = (diff / previous.totalKWh) * 100
+                    isIncrease = diff > 0
+                    let arrow = isIncrease ? "↑" : "↓"
+                    let prevMonth = previous.billingMonth.isEmpty ? "previous bill" : previous.billingMonth
+                    comparison = "\(arrow) \(String(format: "%.1f", abs(pct)))% vs \(prevMonth)"
+                }
+            }
+            return (period, pdfLatest.totalKWh, amount, comparison, isIncrease)
+        } else if let latest = savedBills.first {
             let period = SwiftDataBillService.formatPeriod(start: latest.periodStart, end: latest.periodEnd)
             let previous = savedBills.count > 1 ? savedBills[1] : nil
             let comp = SwiftDataBillService.shared.calculateComparison(latest: latest, previous: previous)
             let curr = (latest.currency.uppercased() == "USD" || latest.currency == "$") ? "$" : "Rs."
             let amount = "\(curr) \(String(format: "%.2f", latest.billAmount))"
             return (period, latest.consumptionKwh, amount, comp.text, comp.isIncrease)
-        } else if let pdfLatest = pdfSavedBills.first {
-            let period = pdfLatest.billingMonth.isEmpty ? "Current Billing Period" : pdfLatest.billingMonth
-            let amount = "Rs. \(String(format: "%.2f", pdfLatest.totalAmount))"
-            return (period, pdfLatest.totalKWh, amount, "Latest imported bill", false)
         }
-        return ("01 Aug – 31 Aug 2025", 180, "Rs. 7,850.00", "↑ 12.5% vs previous month", true)
+        return ("No bill imported", 0, "Rs. 0.00", "No billing history", false)
+    }
+    
+    // Dynamic chart data from user's real saved bills (oldest -> newest, up to 5)
+    private var chartModel: (months: [String], values: [CGFloat], maxValue: CGFloat) {
+        if !pdfSavedBills.isEmpty {
+            let recent = Array(pdfSavedBills.prefix(5).reversed())
+            let ms = recent.map { bill -> String in
+                if !bill.billingMonth.isEmpty {
+                    let parts = bill.billingMonth.components(separatedBy: " ")
+                    if let first = parts.first, first.count >= 3 {
+                        return String(first.prefix(3))
+                    }
+                    return bill.billingMonth
+                }
+                let df = DateFormatter()
+                df.dateFormat = "MMM"
+                return df.string(from: bill.scannedDate)
+            }
+            let vs = recent.map { CGFloat(round($0.totalKWh)) }
+            let maxV = max(vs.max() ?? 100, 50) * 1.25
+            return (ms, vs, maxV)
+        } else if !savedBills.isEmpty {
+            let recent = Array(savedBills.prefix(5).reversed())
+            let df = DateFormatter()
+            df.dateFormat = "MMM"
+            let ms = recent.map { df.string(from: $0.periodEnd) }
+            let vs = recent.map { CGFloat(round($0.consumptionKwh)) }
+            let maxV = max(vs.max() ?? 100, 50) * 1.25
+            return (ms, vs, maxV)
+        }
+        return (["No data"], [0], 100)
+    }
+    
+    private var captionText: String {
+        let chart = chartModel
+        if chart.values.isEmpty || chart.months.first == "No data" {
+            return "Import electricity bills to view your historical consumption trend."
+        }
+        let pairs = zip(chart.months, chart.values).map { "\($0.0) \(String(format: "%.0f", $0.1)) kWh" }
+        return pairs.joined(separator: " · ")
     }
     
     public init() {}
     
     public var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        let chart = chartModel
+        
+        return VStack(alignment: .leading, spacing: 0) {
             // Navigation Back
             CustomBackButton(title: "Done") {
                 navState.navigateBack()
@@ -118,18 +171,18 @@ public struct BillAnalysisResultView: View {
                         
                         // Trend Line Chart
                         VStack(spacing: 0) {
-                            trendChart
+                            trendChartView(chart: chart)
                                 .frame(height: 120)
                                 .padding(.top, 14)
                                 .padding(.horizontal, 10)
                             
                             // X-Axis Labels
                             HStack {
-                                ForEach(months, id: \.self) { month in
+                                ForEach(chart.months, id: \.self) { month in
                                     Text(month)
                                         .font(.system(size: 12, weight: .regular))
                                         .foregroundColor(EnergyLensTheme.textSecondary)
-                                    if month != months.last {
+                                    if month != chart.months.last {
                                         Spacer()
                                     }
                                 }
@@ -139,8 +192,8 @@ public struct BillAnalysisResultView: View {
                             .padding(.bottom, 6)
                         }
                         
-                        // Caption
-                        Text("Apr 140 · May 155 · Jun 165 kWh are illustrative. Jul 160 ·\nAug 180 kWh.")
+                        // Dynamic Caption
+                        Text(captionText)
                             .font(.system(size: 12, weight: .regular))
                             .foregroundColor(EnergyLensTheme.textSecondary)
                             .lineSpacing(2)
@@ -169,19 +222,21 @@ public struct BillAnalysisResultView: View {
     }
     
     // Custom Chart Drawing
-    private var trendChart: some View {
+    private func trendChartView(chart: (months: [String], values: [CGFloat], maxValue: CGFloat)) -> some View {
         GeometryReader { geo in
             let w = geo.size.width
             let h = geo.size.height
             let leftPad: CGFloat = 34
             let chartWidth = w - leftPad - 16
-            let stepX = chartWidth / CGFloat(values.count - 1)
+            let count = max(1, chart.values.count)
+            let stepX = count > 1 ? chartWidth / CGFloat(count - 1) : chartWidth / 2
+            let maxVal = chart.maxValue
             
             ZStack {
                 // Y-axis labels and horizontal baseline
                 VStack {
                     HStack {
-                        Text("240")
+                        Text(String(format: "%.0f", maxVal))
                             .font(.system(size: 11, weight: .regular))
                             .foregroundColor(EnergyLensTheme.textSecondary)
                         Spacer()
@@ -203,25 +258,27 @@ public struct BillAnalysisResultView: View {
                 }
                 .stroke(EnergyLensTheme.borderSubtle, lineWidth: 1)
                 
-                // Trend Line
-                Path { path in
-                    for i in 0..<values.count {
-                        let x = leftPad + CGFloat(i) * stepX
-                        let ratio = values[i] / maxValue
-                        let y = (h - 14) - (ratio * (h - 28))
-                        if i == 0 {
-                            path.move(to: CGPoint(x: x, y: y))
-                        } else {
-                            path.addLine(to: CGPoint(x: x, y: y))
+                // Trend Line (if multiple points)
+                if chart.values.count > 1 {
+                    Path { path in
+                        for i in 0..<chart.values.count {
+                            let x = leftPad + CGFloat(i) * stepX
+                            let ratio = chart.values[i] / maxVal
+                            let y = (h - 14) - (ratio * (h - 28))
+                            if i == 0 {
+                                path.move(to: CGPoint(x: x, y: y))
+                            } else {
+                                path.addLine(to: CGPoint(x: x, y: y))
+                            }
                         }
                     }
+                    .stroke(Color(red: 0.12, green: 0.58, blue: 0.32), style: StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round))
                 }
-                .stroke(Color(red: 0.12, green: 0.58, blue: 0.32), style: StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round))
                 
-                // Data dots and "180" label on Aug
-                ForEach(0..<values.count, id: \.self) { i in
-                    let x = leftPad + CGFloat(i) * stepX
-                    let ratio = values[i] / maxValue
+                // Data dots and value label on latest point
+                ForEach(0..<chart.values.count, id: \.self) { i in
+                    let x = count > 1 ? (leftPad + CGFloat(i) * stepX) : (leftPad + chartWidth / 2)
+                    let ratio = chart.values[i] / maxVal
                     let y = (h - 14) - (ratio * (h - 28))
                     
                     Circle()
@@ -229,8 +286,8 @@ public struct BillAnalysisResultView: View {
                         .frame(width: 6, height: 6)
                         .position(x: x, y: y)
                     
-                    if i == values.count - 1 {
-                        Text("180")
+                    if i == chart.values.count - 1 && chart.values[i] > 0 {
+                        Text(String(format: "%.0f", chart.values[i]))
                             .font(.system(size: 13, weight: .bold))
                             .foregroundColor(EnergyLensTheme.textPrimary)
                             .position(x: x - 4, y: y - 14)
