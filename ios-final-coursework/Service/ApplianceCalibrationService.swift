@@ -14,7 +14,7 @@ public struct CalibratedApplianceItem: Identifiable, Equatable {
     public var name: String
     public var rawKwh: Double
     public var calibratedKwh: Double
-    public var percentage: Double // 0.0 to 1.0 (e.g. 0.40 = 40%)
+    public var percentage: Double
     public var icon: String
     public var color: Color
     
