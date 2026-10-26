@@ -99,8 +99,6 @@ public final class Appliance {
         self.user = user
     }
 
-    /// Estimated monthly kWh based on the selected operating mode.
-    /// All-day appliances use 30 days/month; weekly appliances use the selected days per week x ~4.33 weeks.
     public var estimatedMonthlyKwh: Double {
         let effectiveDays: Double
 
@@ -114,7 +112,6 @@ public final class Appliance {
         return (Double(powerW * quantity) * hoursPerDay * effectiveDays) / 1000.0
     }
 
-    /// Estimated daily average kWh across the full month
     public var estimatedDailyAverageKwh: Double {
         return estimatedMonthlyKwh / 30.0
     }
@@ -133,7 +130,7 @@ public final class Appliance {
     }
 }
 
-// MARK: - Savings Scenario Model
+
 @Model
 public final class SavingsScenario {
     @Attribute(.unique) public var id: UUID
@@ -186,25 +183,25 @@ public final class ElectricityBill {
     public var billAmount: Double
     public var currency: String
 
-    public var provider: String = "CEB"                  // "CEB" or "LECO"
-    public var accountNumber: String = ""               // e.g. "5410264908"
-    public var customerName: String? = nil              // e.g. "R RANJITH"
+    public var provider: String = "CEB"                 
+    public var accountNumber: String = ""               
+    public var customerName: String? = nil              
     public var customerAddress: String? = nil
-    public var tariffCategory: String? = nil            // e.g. "D1"
-    public var billDate: Date? = nil                    // Reading / bill issue date
-    public var dueDate: Date? = nil                     // Payment due date
-    public var billingPeriodText: String = ""           // Formatted period string
-    public var currentCharges: Double? = nil            // Electricity charge for current month
-    public var fixedCharges: Double? = nil              // Fixed charge component
-    public var taxesAndLevies: Double? = nil            // SSC Levy / adjustments
-    public var previousBalance: Double? = nil           // B/F (Brought forward)
-    public var payments: Double? = nil                  // Payments made
-    public var outstandingBalance: Double? = nil        // Net outstanding balance
-    public var totalAmountPayable: Double = 0.0         // Total due amount in LKR
-    public var rawOcrText: String = ""                  // Complete OCR text extracted
-    public var uploadedAt: Date = Date()                // Date scanned/uploaded
-    @Attribute(.externalStorage) public var imageData: Data? = nil // Compressed screenshot data
-    public var isVerified: Bool = false                 // User confirmation flag
+    public var tariffCategory: String? = nil            
+    public var billDate: Date? = nil                    
+    public var dueDate: Date? = nil                     
+    public var billingPeriodText: String = ""           
+    public var currentCharges: Double? = nil            
+    public var fixedCharges: Double? = nil             
+    public var taxesAndLevies: Double? = nil            
+    public var previousBalance: Double? = nil           
+    public var payments: Double? = nil                  
+    public var outstandingBalance: Double? = nil        
+    public var totalAmountPayable: Double = 0.0         
+    public var rawOcrText: String = ""                  
+    public var uploadedAt: Date = Date()               
+    @Attribute(.externalStorage) public var imageData: Data? = nil 
+    public var isVerified: Bool = false                 
     
  
     public var user: User?
@@ -342,12 +339,12 @@ public final class Prediction {
 public final class WeatherData {
     @Attribute(.unique) public var id: UUID
     public var date: Date
-    public var highTemp: Double?   // °C
-    public var lowTemp: Double?    // °C
-    public var condition: String?  // e.g. "Sunny", "Rain"
-    public var precipProb: Double? // Chance of rain (0.0 to 1.0 or percentage)
+    public var highTemp: Double?   
+    public var lowTemp: Double?    
+    public var condition: String?  
+    public var precipProb: Double? 
     
-    // Relationship to User
+
     public var user: User?
     
     public init(
@@ -494,7 +491,6 @@ public final class SavedBill {
         return Decimal(string: String(format: "%.2f", monthlyBill), locale: Locale(identifier: "en_US_POSIX"))
     }
 
-    /// Chronological billing date for sorting, analytics, and Core ML
     public var actualBillingDate: Date {
         if !readingDate.isEmpty, let d = BillExtractionDraft.parseFlexibleDate(readingDate) {
             return d

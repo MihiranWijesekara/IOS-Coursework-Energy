@@ -10,11 +10,11 @@ import Foundation
 public final class FirebaseRESTService {
     public static let shared = FirebaseRESTService()
     
-    // Read from GoogleService-Info.plist (Bundle.main); fall back to the energylens-coursework project values.
+    
     private let apiKey: String
     private let projectID: String
     
-    /// ID token from the latest successful sign-up / sign-in; sent as a Bearer token to Firestore when available.
+    
     private var idToken: String?
     
     private init() {
@@ -29,15 +29,13 @@ public final class FirebaseRESTService {
         self.projectID = project
     }
     
-    // MARK: - Authentication (Firebase Auth REST)
-    
-    /// Creates a Firebase Auth account. Returns the new user's `localId`.
+
     @discardableResult
     public func signUp(email: String, password: String) async throws -> String {
         try await authRequest(endpoint: "accounts:signUp", email: email, password: password)
     }
     
-    /// Signs in an existing Firebase Auth account. Returns the user's `localId`.
+
     @discardableResult
     public func signIn(email: String, password: String) async throws -> String {
         try await authRequest(endpoint: "accounts:signInWithPassword", email: email, password: password)
@@ -70,9 +68,7 @@ public final class FirebaseRESTService {
         return json?["localId"] as? String ?? ""
     }
     
-    // MARK: - Firestore sync (REST PATCH)
-    
-    /// Upserts `users/{sanitizedEmail}`.
+  
     @MainActor
     public func syncUserProfile(user: User) async throws {
         let fields: [String: Any] = [
@@ -88,7 +84,7 @@ public final class FirebaseRESTService {
         try await patchDocument(collection: "users", documentID: Self.sanitizedEmail(user.email), fields: fields)
     }
     
-    /// Upserts `bills/{bill.id}`.
+
     @MainActor
     public func syncBill(bill: SavedBill) async throws {
         let fields: [String: Any] = [
@@ -107,7 +103,7 @@ public final class FirebaseRESTService {
         try await patchDocument(collection: "bills", documentID: bill.id.uuidString, fields: fields)
     }
     
-    /// Upserts `appliances/{appliance.id}`.
+
     @MainActor
     public func syncAppliance(appliance: Appliance, userEmail: String) async throws {
         let fields: [String: Any] = [
@@ -123,7 +119,6 @@ public final class FirebaseRESTService {
         try await patchDocument(collection: "appliances", documentID: appliance.id.uuidString, fields: fields)
     }
     
-    // MARK: - Helpers
     
     private func patchDocument(collection: String, documentID: String, fields: [String: Any]) async throws {
         let encodedID = documentID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? documentID
@@ -145,7 +140,7 @@ public final class FirebaseRESTService {
         }
     }
     
-    /// Firestore-safe document ID derived from an email address (e.g. "a.b@x.com" -> "a_b_at_x_com").
+    
     private static func sanitizedEmail(_ email: String) -> String {
         let lowered = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         var result = ""
@@ -163,7 +158,7 @@ public final class FirebaseRESTService {
     
     private static func string(_ value: String) -> [String: Any] { ["stringValue": value] }
     private static func double(_ value: Double) -> [String: Any] { ["doubleValue": value.isFinite ? value : 0.0] }
-    // Firestore REST encodes int64 values as strings.
+
     private static func integer(_ value: Int) -> [String: Any] { ["integerValue": String(value)] }
     private static func timestamp(_ date: Date) -> [String: Any] {
         ["timestampValue": ISO8601DateFormatter().string(from: date)]

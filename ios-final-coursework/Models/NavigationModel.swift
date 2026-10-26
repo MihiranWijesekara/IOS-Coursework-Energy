@@ -129,6 +129,7 @@ public final class AppNavigationState: ObservableObject, Observable {
     @Published public var selectedBillId: UUID? = nil
     @Published public var currentBillDraft: BillExtractionDraft = BillExtractionDraft()
     @Published public var lastOCRWarningMessage: String? = nil
+    @Published public var shouldOpenManualEntryModal: Bool = false
 
     public var selectedApplianceID: UUID? {
         get { selectedApplianceId }

@@ -9,6 +9,7 @@
 import Foundation
 import UIKit
 import Vision
+import CoreImage
 import PDFKit
 import ImageIO
 
@@ -107,11 +108,89 @@ public final class ElectricityBillOCRService: Sendable {
         }
     }
 
-    /// Performs programmatic OCR using Apple's Vision framework (`VNRecognizeTextRequest`).
+    /// Normalizes image orientation to `.up` so rotated camera photos and landscape screenshots are physically oriented correctly.
+    public static func normalizeImageOrientation(_ image: UIImage) -> UIImage {
+        if image.imageOrientation == .up {
+            return image
+        }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1.0
+        let renderer = UIGraphicsImageRenderer(size: image.size, format: format)
+        return renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: image.size))
+        }
+    }
+
+    /// Applies a gentle non-destructive CIFilter contrast and sharpen pass (CIColorControls contrast 1.12, CISharpenLuminance sharpness 0.35).
+    public static func preprocessImageForOCR(_ inputImage: UIImage) -> UIImage? {
+        guard let ciInput = CIImage(image: inputImage) else { return nil }
+        let context = CIContext(options: [.useSoftwareRenderer: false])
+
+        var output = ciInput
+        if let colorFilter = CIFilter(name: "CIColorControls") {
+            colorFilter.setValue(output, forKey: kCIInputImageKey)
+            colorFilter.setValue(1.12, forKey: kCIInputContrastKey)
+            if let result = colorFilter.outputImage {
+                output = result
+            }
+        }
+
+        if let sharpenFilter = CIFilter(name: "CISharpenLuminance") {
+            sharpenFilter.setValue(output, forKey: kCIInputImageKey)
+            sharpenFilter.setValue(0.35, forKey: kCIInputSharpnessKey)
+            if let result = sharpenFilter.outputImage {
+                output = result
+            }
+        }
+
+        guard let cgImg = context.createCGImage(output, from: output.extent) else { return nil }
+        return UIImage(cgImage: cgImg, scale: inputImage.scale, orientation: .up)
+    }
+
+    /// Executes Vision text recognition request on the specified CGImage.
+    private static func runVisionRequest(on cgImage: CGImage, orientation: CGImagePropertyOrientation) throws -> [RecognizedTextLine] {
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = false
+        request.recognitionLanguages = ["en-US", "en-GB"]
+
+        let handler = VNImageRequestHandler(
+            cgImage: cgImage,
+            orientation: orientation,
+            options: [:]
+        )
+
+        try handler.perform([request])
+
+        let observations = request.results ?? []
+        let rawFragments: [RecognizedTextLine] = observations.compactMap { observation in
+            guard let candidate = observation.topCandidates(1).first else {
+                return nil
+            }
+            let trimmed = candidate.string.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            return RecognizedTextLine(
+                text: trimmed,
+                confidence: candidate.confidence,
+                boundingBox: observation.boundingBox
+            )
+        }
+
+        guard !rawFragments.isEmpty else {
+            return []
+        }
+
+        return groupAndOrderLines(rawFragments)
+    }
+
+    /// Performs programmatic OCR using Apple's Vision framework (`VNRecognizeTextRequest`), with orientation normalization and fallback preprocessing.
     public func recognizeText(from image: UIImage) async throws -> [RecognizedTextLine] {
         try Task.checkCancellation()
 
-        guard let cgImage = image.cgImage else {
+        // Phase 3: Convert UIImage.imageOrientation to .up so rotated camera photos & landscape screenshots are oriented correctly
+        let normalizedImage = Self.normalizeImageOrientation(image)
+
+        guard let cgImage = normalizedImage.cgImage else {
             throw BillOCRError.invalidImage
         }
 
@@ -119,57 +198,53 @@ public final class ElectricityBillOCRService: Sendable {
             throw BillOCRError.imageTooSmall
         }
 
-        let cgOrientation = Self.cgImageOrientation(from: image.imageOrientation)
-
         return try await Task.detached(priority: .userInitiated) {
             try Task.checkCancellation()
 
-            let request = VNRecognizeTextRequest()
-            request.recognitionLevel = .accurate
-            request.usesLanguageCorrection = false
-            request.recognitionLanguages = ["en-US", "en-GB"]
-
-            let handler = VNImageRequestHandler(
-                cgImage: cgImage,
-                orientation: cgOrientation,
-                options: [:]
-            )
-
+            // Pass 1: Original normalized image
+            let pass1Lines: [RecognizedTextLine]
             do {
-                try handler.perform([request])
+                pass1Lines = try Self.runVisionRequest(on: cgImage, orientation: .up)
             } catch {
                 throw BillOCRError.recognitionFailed(error.localizedDescription)
             }
 
             try Task.checkCancellation()
 
-            let observations = request.results ?? []
-            let rawFragments: [RecognizedTextLine] = observations.compactMap { observation in
-                guard let candidate = observation.topCandidates(1).first else {
-                    return nil
+            let pass1AvgConfidence: Float = pass1Lines.isEmpty ? 0 : (pass1Lines.reduce(0) { $0 + $1.confidence } / Float(pass1Lines.count))
+            let pass1HasNumbers = pass1Lines.contains { line in line.text.contains { $0.isNumber } }
+
+            // Phase 3: Secondary CIFilter contrast/sharpen pass only if first pass yields low confidence (<0.70) or missing numeric readings
+            let needsSecondaryPass = pass1Lines.isEmpty || pass1AvgConfidence < 0.70 || !pass1HasNumbers
+
+            if needsSecondaryPass,
+               let preprocessed = Self.preprocessImageForOCR(normalizedImage),
+               let preprocessedCG = preprocessed.cgImage {
+                try Task.checkCancellation()
+                if let pass2Lines = try? Self.runVisionRequest(on: preprocessedCG, orientation: .up), !pass2Lines.isEmpty {
+                    let pass2AvgConfidence = pass2Lines.reduce(0) { $0 + $1.confidence } / Float(pass2Lines.count)
+                    let pass2HasNumbers = pass2Lines.contains { line in line.text.contains { $0.isNumber } }
+
+                    if pass1Lines.isEmpty || (!pass1HasNumbers && pass2HasNumbers) || (pass2AvgConfidence > pass1AvgConfidence && pass2HasNumbers) {
+                        return pass2Lines
+                    }
                 }
-                let trimmed = candidate.string.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmed.isEmpty else { return nil }
-                return RecognizedTextLine(
-                    text: trimmed,
-                    confidence: candidate.confidence,
-                    boundingBox: observation.boundingBox
-                )
             }
 
-            guard !rawFragments.isEmpty else {
+            guard !pass1Lines.isEmpty else {
                 throw BillOCRError.noTextDetected
             }
 
-            return Self.groupAndOrderLines(rawFragments)
+            return pass1Lines
         }.value
     }
 
     /// Groups horizontally aligned text fragments on the same visual row and orders rows top-to-bottom.
+    /// Grouping lines whose midY are within 0.012 normalized height and sorting left-to-right by minX for multi-column CEB/LECO bills.
     public static func groupAndOrderLines(_ fragments: [RecognizedTextLine]) -> [RecognizedTextLine] {
         // Vision coordinates have origin (0,0) at bottom-left, so higher midY is higher on screen.
         let sortedByY = fragments.sorted { lhs, rhs in
-            if abs(lhs.boundingBox.midY - rhs.boundingBox.midY) > 0.014 {
+            if abs(lhs.boundingBox.midY - rhs.boundingBox.midY) > 0.012 {
                 return lhs.boundingBox.midY > rhs.boundingBox.midY
             }
             return lhs.boundingBox.minX < rhs.boundingBox.minX
@@ -179,7 +254,7 @@ public final class ElectricityBillOCRService: Sendable {
         for fragment in sortedByY {
             if var lastRow = mergedRows.last,
                let firstInRow = lastRow.first,
-               abs(firstInRow.boundingBox.midY - fragment.boundingBox.midY) <= 0.014 {
+               abs(firstInRow.boundingBox.midY - fragment.boundingBox.midY) <= 0.012 {
                 lastRow.append(fragment)
                 mergedRows[mergedRows.count - 1] = lastRow
             } else {

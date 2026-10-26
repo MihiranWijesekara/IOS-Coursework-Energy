@@ -12,18 +12,70 @@ public struct BillHistoryView: View {
     @EnvironmentObject var navState: AppNavigationState
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \ElectricityBill.periodEnd, order: .reverse) private var savedBills: [ElectricityBill]
+    @Query(sort: \SavedBill.scannedDate, order: .reverse) private var pdfSavedBills: [SavedBill]
+
     @State private var selectedPeriod = 0 // 0: 5 months, 1: Year
     @State private var billToDelete: ElectricityBill? = nil
+    @State private var pdfBillToDelete: SavedBill? = nil
     @State private var showDeleteAlert = false
     
-    private let months = ["Apr", "May", "Jun", "Jul", "Aug"]
-    private let values: [CGFloat] = [140, 155, 165, 160, 180]
-    private let maxValue: CGFloat = 240
-    
     public init() {}
+
+    // Functional 5 months (selectedPeriod == 0) vs Year (selectedPeriod == 1) dynamic chart model
+    private var chartModel: (months: [String], values: [CGFloat], maxValue: CGFloat, latestValue: CGFloat) {
+        let maxCount = (selectedPeriod == 0) ? 5 : 12
+        
+        let sortedPDF = pdfSavedBills.sorted { $0.actualBillingDate > $1.actualBillingDate }
+        if !sortedPDF.isEmpty {
+            let slice = Array(sortedPDF.prefix(maxCount).reversed())
+            let ms = slice.map { b -> String in
+                if !b.billingMonth.isEmpty {
+                    let parts = b.billingMonth.components(separatedBy: " ")
+                    if let first = parts.first, first.count >= 3 {
+                        return String(first.prefix(3))
+                    }
+                    return b.billingMonth
+                }
+                let df = DateFormatter()
+                df.dateFormat = "MMM"
+                return df.string(from: b.actualBillingDate)
+            }
+            let vs = slice.map { CGFloat(round($0.totalKWh)) }
+            let maxV = max(vs.max() ?? 100, 50) * 1.25
+            let latest = vs.last ?? 0
+            return (ms, vs, maxV, latest)
+        } else if !savedBills.isEmpty {
+            let slice = Array(savedBills.prefix(maxCount).reversed())
+            let df = DateFormatter()
+            df.dateFormat = "MMM"
+            let ms = slice.map { df.string(from: $0.periodEnd) }
+            let vs = slice.map { CGFloat(round($0.consumptionKwh)) }
+            let maxV = max(vs.max() ?? 100, 50) * 1.25
+            let latest = vs.last ?? 0
+            return (ms, vs, maxV, latest)
+        }
+        return ([], [], 100, 0)
+    }
+
+    private var totalBillCount: Int {
+        if !savedBills.isEmpty {
+            return savedBills.count
+        }
+        return pdfSavedBills.count
+    }
     
     public var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        if savedBills.isEmpty && pdfSavedBills.isEmpty {
+            BillHistoryEmptyView()
+        } else {
+            mainHistoryContent
+        }
+    }
+
+    private var mainHistoryContent: some View {
+        let chart = chartModel
+        
+        return VStack(alignment: .leading, spacing: 0) {
             // Top Bar
             HStack {
                 CustomBackButton(title: "Bill Analysis") {
@@ -86,23 +138,25 @@ public struct BillHistoryView: View {
                             .font(.system(size: 13, weight: .medium))
                             .foregroundColor(.white.opacity(0.85))
                         
-                        darkTrendChart
+                        darkTrendChart(chart: chart)
                             .frame(height: 110)
                             .padding(.top, 8)
                         
                         // X-axis labels
-                        HStack {
-                            ForEach(months, id: \.self) { month in
-                                Text(month)
-                                    .font(.system(size: 12, weight: .regular))
-                                    .foregroundColor(.white.opacity(0.75))
-                                if month != months.last {
-                                    Spacer()
+                        if !chart.months.isEmpty {
+                            HStack {
+                                ForEach(Array(chart.months.enumerated()), id: \.offset) { index, month in
+                                    Text(month)
+                                        .font(.system(size: 12, weight: .regular))
+                                        .foregroundColor(.white.opacity(0.75))
+                                    if index != chart.months.count - 1 {
+                                        Spacer()
+                                    }
                                 }
                             }
+                            .padding(.horizontal, chart.months.count == 1 ? 50 : 32)
+                            .padding(.top, 2)
                         }
-                        .padding(.horizontal, 32)
-                        .padding(.top, 2)
                     }
                     .padding(18)
                     .background(EnergyLensTheme.darkNavyCard)
@@ -116,7 +170,7 @@ public struct BillHistoryView: View {
                     
                     // Section: Bills
                     HStack {
-                        Text(savedBills.isEmpty ? "Sample bills" : "Imported bills (\(savedBills.count))")
+                        Text("Imported bills (\(totalBillCount))")
                             .font(.system(size: 20, weight: .bold))
                             .foregroundColor(EnergyLensTheme.textPrimary)
                         
@@ -134,8 +188,9 @@ public struct BillHistoryView: View {
                                 }) {
                                     let formatter = DateFormatter()
                                     let _ = formatter.dateFormat = "MMMM yyyy"
-                                    let monthTitle = formatter.string(from: bill.periodEnd)
-                                    let subtitle = "\(bill.accountNumber.isEmpty ? "" : "A/C: " + bill.accountNumber + " · ")\(Int(round(bill.consumptionKwh))) kWh · Rs. \(String(format: "%.2f", bill.totalAmountPayable))"
+                                    let monthTitle = bill.billingPeriodText.isEmpty ? formatter.string(from: bill.periodEnd) : bill.billingPeriodText
+                                    let curr = (bill.currency.uppercased() == "USD" || bill.currency == "$") ? "$" : "Rs."
+                                    let subtitle = "\(bill.accountNumber.isEmpty ? "" : "A/C: " + bill.accountNumber + " · ")\(Int(round(bill.consumptionKwh))) kWh · \(curr) \(String(format: "%.2f", bill.totalAmountPayable))"
                                     
                                     billRow(
                                         month: monthTitle,
@@ -152,23 +207,30 @@ public struct BillHistoryView: View {
                                 .buttonStyle(PlainButtonStyle())
                             }
                         } else {
-                            // Empty Fallback State with Sample Rows
-                            Button(action: {
-                                navState.navigate(to: .billAnalysisResult)
-                            }) {
-                                billRow(
-                                    month: "August 2025 (Sample)",
-                                    subtitle: "180 kWh · LKR 7,850",
-                                    provider: "CEB",
-                                    hasImage: false,
-                                    isHighlighted: true,
-                                    onDelete: nil
-                                )
+                            ForEach(Array(pdfSavedBills.enumerated()), id: \.element.id) { index, bill in
+                                Button(action: {
+                                    navState.selectedBillId = bill.id
+                                    navState.navigate(to: .billDetail)
+                                }) {
+                                    let monthTitle = bill.billingMonth.isEmpty ? "Saved Bill" : bill.billingMonth
+                                    let curr = (bill.currency.uppercased() == "USD" || bill.currency == "$") ? "$" : "Rs."
+                                    let amt = bill.monthlyBill > 0 ? bill.monthlyBill : bill.totalAmount
+                                    let subtitle = "\(bill.accountNumber.isEmpty ? "" : "A/C: " + bill.accountNumber + " · ")\(Int(round(bill.totalKWh))) kWh · \(curr) \(String(format: "%.2f", amt))"
+                                    
+                                    billRow(
+                                        month: monthTitle,
+                                        subtitle: subtitle,
+                                        provider: bill.providerName,
+                                        hasImage: false,
+                                        isHighlighted: index == 0,
+                                        onDelete: {
+                                            pdfBillToDelete = bill
+                                            showDeleteAlert = true
+                                        }
+                                    )
+                                }
+                                .buttonStyle(PlainButtonStyle())
                             }
-                            .buttonStyle(PlainButtonStyle())
-                            
-                            billRow(month: "July 2025", subtitle: "160 kWh · Illustrative", provider: "CEB", hasImage: false, isHighlighted: false, onDelete: nil)
-                            billRow(month: "June 2025", subtitle: "165 kWh · Illustrative", provider: "CEB", hasImage: false, isHighlighted: false, onDelete: nil)
                         }
                     }
                     .padding(.bottom, 24)
@@ -181,9 +243,16 @@ public struct BillHistoryView: View {
             Button("Delete", role: .destructive) {
                 if let b = billToDelete {
                     try? SwiftDataBillService.shared.deleteBill(context: modelContext, bill: b)
+                    billToDelete = nil
+                } else if let pb = pdfBillToDelete {
+                    try? SwiftDataBillService.shared.deleteBill(context: modelContext, bill: pb)
+                    pdfBillToDelete = nil
                 }
             }
-            Button("Cancel", role: .cancel) {}
+            Button("Cancel", role: .cancel) {
+                billToDelete = nil
+                pdfBillToDelete = nil
+            }
         } message: {
             Text("Are you sure you want to delete this electricity bill from SwiftData?")
         }
@@ -256,19 +325,21 @@ public struct BillHistoryView: View {
         )
     }
     
-    private var darkTrendChart: some View {
+    private func darkTrendChart(chart: (months: [String], values: [CGFloat], maxValue: CGFloat, latestValue: CGFloat)) -> some View {
         GeometryReader { geo in
             let w = geo.size.width
             let h = geo.size.height
             let leftPad: CGFloat = 34
-            let chartWidth = w - leftPad - 14
-            let stepX = chartWidth / CGFloat(values.count - 1)
+            let rightPad: CGFloat = 16
+            let chartWidth = max(10, w - leftPad - rightPad)
+            let count = chart.values.count
+            let maxVal = max(chart.maxValue, 10)
             
             ZStack {
                 // Y-axis labels
                 VStack {
                     HStack {
-                        Text("240")
+                        Text(String(format: "%.0f", maxVal))
                             .font(.system(size: 11, weight: .regular))
                             .foregroundColor(.white.opacity(0.65))
                         Spacer()
@@ -286,41 +357,64 @@ public struct BillHistoryView: View {
                 // Zero line
                 Path { path in
                     path.move(to: CGPoint(x: leftPad, y: h - 8))
-                    path.addLine(to: CGPoint(x: w, y: h - 8))
+                    path.addLine(to: CGPoint(x: w - 8, y: h - 8))
                 }
                 .stroke(Color.white.opacity(0.2), lineWidth: 1)
                 
-                // Mint line
-                Path { path in
-                    for i in 0..<values.count {
-                        let x = leftPad + CGFloat(i) * stepX
-                        let ratio = values[i] / maxValue
-                        let y = (h - 12) - (ratio * (h - 24))
-                        if i == 0 {
-                            path.move(to: CGPoint(x: x, y: y))
-                        } else {
-                            path.addLine(to: CGPoint(x: x, y: y))
-                        }
-                    }
-                }
-                .stroke(Color(red: 0.40, green: 0.90, blue: 0.70), style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
-                
-                // Dots and "180" label
-                ForEach(0..<values.count, id: \.self) { i in
-                    let x = leftPad + CGFloat(i) * stepX
-                    let ratio = values[i] / maxValue
+                if count == 0 {
+                    Text("No billing data to display")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.white.opacity(0.7))
+                        .position(x: leftPad + chartWidth / 2, y: h / 2)
+                } else if count == 1 {
+                    let x = leftPad + chartWidth / 2
+                    let ratio = min(1.0, max(0.0, chart.values[0] / maxVal))
                     let y = (h - 12) - (ratio * (h - 24))
                     
                     Circle()
                         .fill(Color(red: 0.40, green: 0.90, blue: 0.70))
-                        .frame(width: 5.5, height: 5.5)
+                        .frame(width: 7, height: 7)
                         .position(x: x, y: y)
                     
-                    if i == values.count - 1 {
-                        Text("180")
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundColor(.white)
-                            .position(x: x - 4, y: y - 14)
+                    Text(String(format: "%.0f", chart.values[0]))
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(.white)
+                        .position(x: x, y: y - 14)
+                } else {
+                    let stepX = chartWidth / CGFloat(count - 1)
+                    
+                    // Mint line
+                    Path { path in
+                        for i in 0..<count {
+                            let x = leftPad + CGFloat(i) * stepX
+                            let ratio = min(1.0, max(0.0, chart.values[i] / maxVal))
+                            let y = (h - 12) - (ratio * (h - 24))
+                            if i == 0 {
+                                path.move(to: CGPoint(x: x, y: y))
+                            } else {
+                                path.addLine(to: CGPoint(x: x, y: y))
+                            }
+                        }
+                    }
+                    .stroke(Color(red: 0.40, green: 0.90, blue: 0.70), style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
+                    
+                    // Dots and latest label
+                    ForEach(0..<count, id: \.self) { i in
+                        let x = leftPad + CGFloat(i) * stepX
+                        let ratio = min(1.0, max(0.0, chart.values[i] / maxVal))
+                        let y = (h - 12) - (ratio * (h - 24))
+                        
+                        Circle()
+                            .fill(Color(red: 0.40, green: 0.90, blue: 0.70))
+                            .frame(width: 5.5, height: 5.5)
+                            .position(x: x, y: y)
+                        
+                        if i == count - 1 && chart.values[i] > 0 {
+                            Text(String(format: "%.0f", chart.values[i]))
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundColor(.white)
+                                .position(x: x - 4, y: y - 14)
+                        }
                     }
                 }
             }

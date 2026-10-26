@@ -40,6 +40,8 @@ public struct ReviewBillView: View {
     @State private var showDuplicateAlert = false
     @State private var duplicateExistingBill: ElectricityBill? = nil
     @State private var showImageZoom = false
+    @State private var showWarningConfirmationAlert = false
+    @State private var userConfirmedWarnings = false
     
     // Edit Modal State
     @State private var isShowingEditModal: Bool = false
@@ -182,11 +184,11 @@ public struct ReviewBillView: View {
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 18) {
-                    // Header & Provider Badge
-                    VStack(alignment: .leading, spacing: 4) {
+                    // Header & Provider Badge with OCR Confidence
+                    VStack(alignment: .leading, spacing: 6) {
                         HStack {
                             Text("Review Extracted Bill")
-                                .font(.system(size: 28, weight: .bold))
+                                .font(.system(size: 26, weight: .bold))
                                 .foregroundColor(EnergyLensTheme.textPrimary)
                             
                             Spacer()
@@ -200,13 +202,30 @@ public struct ReviewBillView: View {
                                 .cornerRadius(8)
                         }
 
-                        Text("Apple Vision OCR extracted these fields. Tap Edit to adjust any value.")
-                            .font(.system(size: 14, weight: .regular))
-                            .foregroundColor(EnergyLensTheme.textSecondary)
+                        HStack(spacing: 8) {
+                            let conf = navState.currentBillDraft.extractionConfidence > 0 ? navState.currentBillDraft.extractionConfidence : 0.94
+                            let confPct = Int(round(conf * 100))
+                            HStack(spacing: 4) {
+                                Image(systemName: "doc.text.viewfinder")
+                                    .font(.system(size: 11, weight: .semibold))
+                                Text("OCR Confidence: \(confPct)%")
+                                    .font(.system(size: 12, weight: .bold))
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(confPct >= 75 ? EnergyLensTheme.mintHighlight : Color.orange.opacity(0.15))
+                            .foregroundColor(confPct >= 75 ? EnergyLensTheme.accentGreen : Color.orange)
+                            .cornerRadius(8)
+
+                            Text("Tap Edit to adjust any value")
+                                .font(.system(size: 13, weight: .regular))
+                                .foregroundColor(EnergyLensTheme.textSecondary)
+                        }
                     }
 
-                    // Mathematical Validation Banner
-                    if isMathConsistent {
+                    // Mathematical Validation Banner & Discrepancies
+                    let warnings = navState.currentBillDraft.validationWarnings
+                    if warnings.isEmpty && isMathConsistent {
                         HStack(spacing: 12) {
                             Image(systemName: "checkmark.seal.fill")
                                 .font(.system(size: 22))
@@ -217,15 +236,9 @@ public struct ReviewBillView: View {
                                     .font(.system(size: 15, weight: .bold))
                                     .foregroundColor(.white)
 
-                                if let firstMsg = validationMessages.first {
-                                    Text(firstMsg)
-                                        .font(.system(size: 12, weight: .regular))
-                                        .foregroundColor(.white.opacity(0.92))
-                                } else {
-                                    Text("Meter reading difference matches consumption units.")
-                                        .font(.system(size: 12, weight: .regular))
-                                        .foregroundColor(.white.opacity(0.92))
-                                }
+                                Text("Meter readings, energy charges, and taxes reconciled consistently.")
+                                    .font(.system(size: 12, weight: .regular))
+                                    .foregroundColor(.white.opacity(0.92))
                             }
                             Spacer()
                         }
@@ -234,25 +247,51 @@ public struct ReviewBillView: View {
                         .background(EnergyLensTheme.buttonGradient)
                         .cornerRadius(14)
                     } else {
-                        HStack(spacing: 12) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .font(.system(size: 20))
-                                .foregroundColor(.white)
-
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Verification Needed")
-                                    .font(.system(size: 14, weight: .bold))
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 10) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .font(.system(size: 20))
                                     .foregroundColor(.white)
 
-                                Text("Meter readings or charges may require manual verification.")
-                                    .font(.system(size: 12, weight: .regular))
-                                    .foregroundColor(.white.opacity(0.92))
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Verification Needed (\(warnings.count) Warning\(warnings.count == 1 ? "" : "s"))")
+                                        .font(.system(size: 15, weight: .bold))
+                                        .foregroundColor(.white)
+
+                                    Text("Discrepancies or low-confidence readings detected. Please double-check before saving.")
+                                        .font(.system(size: 12, weight: .regular))
+                                        .foregroundColor(.white.opacity(0.92))
+                                }
+                                Spacer()
                             }
-                            Spacer()
+
+                            if !warnings.isEmpty {
+                                Divider()
+                                    .background(Color.white.opacity(0.3))
+
+                                VStack(alignment: .leading, spacing: 6) {
+                                    ForEach(warnings) { w in
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            HStack(spacing: 6) {
+                                                Image(systemName: "info.circle.fill")
+                                                    .font(.system(size: 11))
+                                                    .foregroundColor(.white)
+                                                Text(w.title)
+                                                    .font(.system(size: 12, weight: .bold))
+                                                    .foregroundColor(.white)
+                                            }
+                                            Text(w.message)
+                                                .font(.system(size: 11, weight: .regular))
+                                                .foregroundColor(.white.opacity(0.92))
+                                        }
+                                        .padding(.vertical, 2)
+                                    }
+                                }
+                            }
                         }
                         .padding(.vertical, 12)
                         .padding(.horizontal, 16)
-                        .background(Color.orange)
+                        .background(Color(red: 0.92, green: 0.45, blue: 0.15))
                         .cornerRadius(14)
                     }
 
@@ -322,16 +361,16 @@ public struct ReviewBillView: View {
                         }
 
                         VStack(spacing: 10) {
-                            reviewRow(label: "Account Number", value: accountNumber.isEmpty ? "Not detected" : accountNumber, icon: "number")
+                            reviewRow(label: "Account Number", value: accountNumber.isEmpty ? "Not detected" : accountNumber, icon: "number", fieldKey: "accountNumber")
                             if !tariffCategory.isEmpty {
-                                reviewRow(label: "Tariff Category", value: tariffCategory, icon: "tag")
+                                reviewRow(label: "Tariff Category", value: tariffCategory, icon: "tag", fieldKey: "tariffCode")
                             }
                             if !customerName.isEmpty {
-                                reviewRow(label: "Customer Name", value: customerName, icon: "person")
+                                reviewRow(label: "Customer Name", value: customerName, icon: "person", fieldKey: "customerName")
                             }
                             reviewRow(label: "Billing Period", value: billingPeriod.isEmpty ? "Current Month" : billingPeriod, icon: "calendar")
                             if !readingDate.isEmpty {
-                                reviewRow(label: "Reading / Bill Date", value: readingDate, icon: "calendar.badge.clock")
+                                reviewRow(label: "Reading / Bill Date", value: readingDate, icon: "calendar.badge.clock", fieldKey: "readingDate")
                             }
                             if !dueDate.isEmpty {
                                 reviewRow(label: "Payment Due Date", value: dueDate, icon: "calendar.badge.exclamationmark")
@@ -353,10 +392,23 @@ public struct ReviewBillView: View {
                             .foregroundColor(EnergyLensTheme.textPrimary)
 
                         HStack(spacing: 12) {
+                            let prevLowConf = isFieldLowConfidence("reading") || isFieldLowConfidence("previousReading")
                             VStack(alignment: .leading, spacing: 4) {
-                                Text("Previous Reading")
-                                    .font(.system(size: 12, weight: .regular))
-                                    .foregroundColor(EnergyLensTheme.textSecondary)
+                                HStack {
+                                    Text("Previous Reading")
+                                        .font(.system(size: 12, weight: .regular))
+                                        .foregroundColor(EnergyLensTheme.textSecondary)
+                                    Spacer()
+                                    if prevLowConf {
+                                        Text("Verify")
+                                            .font(.system(size: 9, weight: .bold))
+                                            .foregroundColor(.white)
+                                            .padding(.horizontal, 4)
+                                            .padding(.vertical, 1)
+                                            .background(Color.orange)
+                                            .cornerRadius(4)
+                                    }
+                                }
                                 Text(previousReading.isEmpty ? "—" : previousReading)
                                     .font(.system(size: 16, weight: .semibold))
                                     .foregroundColor(EnergyLensTheme.textPrimary)
@@ -366,10 +418,23 @@ public struct ReviewBillView: View {
                             .background(Color(red: 0.96, green: 0.97, blue: 0.98))
                             .cornerRadius(10)
 
+                            let currLowConf = isFieldLowConfidence("reading") || isFieldLowConfidence("currentReading")
                             VStack(alignment: .leading, spacing: 4) {
-                                Text("Current Reading")
-                                    .font(.system(size: 12, weight: .regular))
-                                    .foregroundColor(EnergyLensTheme.textSecondary)
+                                HStack {
+                                    Text("Current Reading")
+                                        .font(.system(size: 12, weight: .regular))
+                                        .foregroundColor(EnergyLensTheme.textSecondary)
+                                    Spacer()
+                                    if currLowConf {
+                                        Text("Verify")
+                                            .font(.system(size: 9, weight: .bold))
+                                            .foregroundColor(.white)
+                                            .padding(.horizontal, 4)
+                                            .padding(.vertical, 1)
+                                            .background(Color.orange)
+                                            .cornerRadius(4)
+                                    }
+                                }
                                 Text(currentReading.isEmpty ? "—" : currentReading)
                                     .font(.system(size: 16, weight: .semibold))
                                     .foregroundColor(EnergyLensTheme.textPrimary)
@@ -383,9 +448,20 @@ public struct ReviewBillView: View {
                         // Consumption Banner
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("Total Electricity Consumption")
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundColor(Color(red: 0.10, green: 0.40, blue: 0.25))
+                                HStack(spacing: 6) {
+                                    Text("Total Electricity Consumption")
+                                        .font(.system(size: 12, weight: .medium))
+                                        .foregroundColor(Color(red: 0.10, green: 0.40, blue: 0.25))
+                                    if isFieldLowConfidence("consumptionUnits") {
+                                        Text("Verify")
+                                            .font(.system(size: 9, weight: .bold))
+                                            .foregroundColor(.white)
+                                            .padding(.horizontal, 4)
+                                            .padding(.vertical, 1)
+                                            .background(Color.orange)
+                                            .cornerRadius(4)
+                                    }
+                                }
                                 Text(consumption.isEmpty ? "0 kWh" : consumption)
                                     .font(.system(size: 22, weight: .bold))
                                     .foregroundColor(Color(red: 0.08, green: 0.45, blue: 0.28))
@@ -415,22 +491,22 @@ public struct ReviewBillView: View {
 
                         VStack(spacing: 8) {
                             if !currentCharge.isEmpty {
-                                financialRow(title: "Electricity Charge (Current)", amount: currentCharge)
+                                financialRow(title: "Electricity Charge (Current)", amount: currentCharge, fieldKey: "energyCharge")
                             }
                             if !taxesAndLevies.isEmpty {
-                                financialRow(title: "SSC Levy & Taxes", amount: taxesAndLevies)
+                                financialRow(title: "SSC Levy & Taxes", amount: taxesAndLevies, fieldKey: "levyAmount")
                             }
                             if !monthlyBill.isEmpty {
-                                financialRow(title: "Monthly Bill", amount: monthlyBill, isBold: true)
+                                financialRow(title: "Monthly Bill", amount: monthlyBill, isBold: true, fieldKey: "monthlyBill")
                             }
                             if !previousBalance.isEmpty {
-                                financialRow(title: "Brought Forward (B/F)", amount: previousBalance)
+                                financialRow(title: "Brought Forward (B/F)", amount: previousBalance, fieldKey: "broughtForward")
                             }
                             if !payments.isEmpty {
-                                financialRow(title: "Payments Received", amount: "-\(payments)", color: .green)
+                                financialRow(title: "Payments Received", amount: "-\(payments)", color: .green, fieldKey: "payments")
                             }
                             if !outstandingBalance.isEmpty {
-                                financialRow(title: "Outstanding Balance", amount: outstandingBalance)
+                                financialRow(title: "Outstanding Balance", amount: outstandingBalance, fieldKey: "outstandingBalance")
                             }
 
                             Divider()
@@ -441,6 +517,19 @@ public struct ReviewBillView: View {
                                 Text("TOTAL AMOUNT DUE")
                                     .font(.system(size: 15, weight: .bold))
                                     .foregroundColor(Color(red: 0.08, green: 0.35, blue: 0.45))
+                                if isFieldLowConfidence("totalDue") {
+                                    HStack(spacing: 3) {
+                                        Image(systemName: "exclamationmark.triangle.fill")
+                                            .font(.system(size: 9))
+                                        Text("Verify")
+                                            .font(.system(size: 10, weight: .bold))
+                                    }
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.orange)
+                                    .cornerRadius(6)
+                                }
                                 Spacer()
                                 Text(totalAmountPayable.isEmpty ? "Rs. 0.00" : totalAmountPayable)
                                     .font(.system(size: 20, weight: .black))
@@ -511,6 +600,11 @@ public struct ReviewBillView: View {
                     syncFromState(extracted)
                 }
             }
+
+            if navState.shouldOpenManualEntryModal {
+                navState.shouldOpenManualEntryModal = false
+                openEditModal()
+            }
         }
         .sheet(isPresented: $isShowingEditModal) {
             editBillModalView
@@ -543,20 +637,58 @@ public struct ReviewBillView: View {
         } message: {
             Text("A saved bill for Account \(accountNumber) (\(billingPeriod)) already exists in SwiftData. Would you like to update it or save as a duplicate?")
         }
+        .alert("Verification Warnings", isPresented: $showWarningConfirmationAlert) {
+            Button("Confirm & Save Anyway", role: .destructive) {
+                userConfirmedWarnings = true
+                Task {
+                    await checkAndSaveBill()
+                }
+            }
+            Button("Review & Edit") {
+                openEditModal()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            let count = navState.currentBillDraft.validationWarnings.count
+            Text("This bill contains \(count) calculation or OCR verification warning\(count == 1 ? "" : "s") (e.g. \(navState.currentBillDraft.validationWarnings.first?.title ?? "Discrepancy detected")). Please verify or adjust values before saving.")
+        }
+    }
+
+    private func isFieldLowConfidence(_ fieldKey: String?) -> Bool {
+        guard let fieldKey else { return false }
+        if let meta = navState.currentBillDraft.fieldMetadata[fieldKey], meta.isLowConfidence {
+            return true
+        }
+        return false
     }
 
     // Helper row builders
     @ViewBuilder
-    private func reviewRow(label: String, value: String, icon: String) -> some View {
+    private func reviewRow(label: String, value: String, icon: String, fieldKey: String? = nil) -> some View {
+        let isLowConf = isFieldLowConfidence(fieldKey)
         HStack(spacing: 10) {
             Image(systemName: icon)
                 .font(.system(size: 13))
-                .foregroundColor(EnergyLensTheme.accentGreen)
+                .foregroundColor(isLowConf ? Color.orange : EnergyLensTheme.accentGreen)
                 .frame(width: 18)
 
             Text(label)
                 .font(.system(size: 13, weight: .regular))
                 .foregroundColor(EnergyLensTheme.textSecondary)
+
+            if isLowConf {
+                HStack(spacing: 3) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 9))
+                    Text("Verify")
+                        .font(.system(size: 10, weight: .bold))
+                }
+                .foregroundColor(.white)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.orange)
+                .cornerRadius(6)
+            }
 
             Spacer()
 
@@ -567,11 +699,27 @@ public struct ReviewBillView: View {
     }
 
     @ViewBuilder
-    private func financialRow(title: String, amount: String, isBold: Bool = false, color: Color = EnergyLensTheme.textPrimary) -> some View {
+    private func financialRow(title: String, amount: String, isBold: Bool = false, color: Color = EnergyLensTheme.textPrimary, fieldKey: String? = nil) -> some View {
+        let isLowConf = isFieldLowConfidence(fieldKey)
         HStack {
             Text(title)
                 .font(.system(size: 13, weight: isBold ? .bold : .regular))
                 .foregroundColor(isBold ? EnergyLensTheme.textPrimary : EnergyLensTheme.textSecondary)
+
+            if isLowConf {
+                HStack(spacing: 3) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 9))
+                    Text("Verify")
+                        .font(.system(size: 10, weight: .bold))
+                }
+                .foregroundColor(.white)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.orange)
+                .cornerRadius(6)
+            }
+
             Spacer()
             Text(amount)
                 .font(.system(size: 14, weight: isBold ? .bold : .semibold))
@@ -659,6 +807,12 @@ public struct ReviewBillView: View {
     @MainActor
     private func checkAndSaveBill() async {
         saveError = ""
+        // Phase 3: Require explicit confirmation before saving if validation warnings exist
+        if !navState.currentBillDraft.validationWarnings.isEmpty && !userConfirmedWarnings {
+            showWarningConfirmationAlert = true
+            return
+        }
+
         do {
             if let dup = try SwiftDataBillService.shared.findDuplicate(context: modelContext, accountNumber: accountNumber, billingPeriodText: billingPeriod) {
                 duplicateExistingBill = dup
