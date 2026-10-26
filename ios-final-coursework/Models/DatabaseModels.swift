@@ -99,7 +99,9 @@ public final class Appliance {
         self.user = user
     }
 
-   
+    /// Estimated monthly kWh based on the selected operating mode.
+    /// All-day appliances use 30 days/month; weekly appliances use the selected days per week x ~4.33 weeks.
+    public var estimatedMonthlyKwh: Double {
         let effectiveDays: Double
 
         if usageMode == "Weekly" {

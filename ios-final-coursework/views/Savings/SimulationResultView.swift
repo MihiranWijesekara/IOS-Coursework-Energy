@@ -30,13 +30,17 @@ public struct SimulationResultView: View {
         return navState.simulationHours
     }
     
+    private var sortedPDFBills: [SavedBill] {
+        pdfSavedBills.sorted { $0.actualBillingDate > $1.actualBillingDate }
+    }
+
     private var currencySymbol: String {
-        let raw = pdfSavedBills.first?.currency ?? savedBills.first?.currency ?? "LKR"
+        let raw = sortedPDFBills.first?.currency ?? savedBills.first?.currency ?? "LKR"
         return (raw.uppercased() == "USD" || raw == "$") ? "$" : "Rs."
     }
     
     private var effectiveTariffRate: Double {
-        if let pdf = pdfSavedBills.first, pdf.totalKWh > 0, pdf.totalAmount > 0 {
+        if let pdf = sortedPDFBills.first, pdf.totalKWh > 0, pdf.totalAmount > 0 {
             return pdf.totalAmount / pdf.totalKWh
         }
         if let bill = savedBills.first, bill.consumptionKwh > 0, bill.billAmount > 0 {
@@ -46,7 +50,7 @@ public struct SimulationResultView: View {
     }
     
     private var currentMonthlyBill: Double {
-        if let pdf = pdfSavedBills.first, pdf.totalAmount > 0 {
+        if let pdf = sortedPDFBills.first, pdf.totalAmount > 0 {
             return pdf.totalAmount
         }
         if let bill = savedBills.first, bill.billAmount > 0 {
@@ -58,7 +62,7 @@ public struct SimulationResultView: View {
     }
     
     private var metrics: (savedKwh: Double, savedLkr: Double, beforeKwh: Double, afterKwh: Double, appName: String, monthName: String) {
-        let billKwh = pdfSavedBills.first?.totalKWh ?? savedBills.first?.consumptionKwh ?? 180.0
+        let billKwh = sortedPDFBills.first?.totalKWh ?? savedBills.first?.consumptionKwh ?? 180.0
         
         let beforeKwh: Double
         if let app = activeAppliance {
@@ -81,7 +85,7 @@ public struct SimulationResultView: View {
         let name = activeAppliance?.name ?? navState.selectedAppliance
         
         let monthName: String = {
-            if let pdf = pdfSavedBills.first, !pdf.billingMonth.isEmpty {
+            if let pdf = sortedPDFBills.first, !pdf.billingMonth.isEmpty {
                 return pdf.billingMonth
             }
             if let bill = savedBills.first {
