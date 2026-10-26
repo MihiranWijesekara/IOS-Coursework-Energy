@@ -747,7 +747,10 @@ public struct ReviewBillView: View {
                 draftToPersist.totalAmount = totalAmountPayable.replacingOccurrences(of: "Rs. ", with: "").replacingOccurrences(of: "$", with: "")
                 draftToPersist.rawExtractedText = rawText
             }
-            try? SwiftDataBillService.shared.saveReviewedBill(from: draftToPersist, userEmail: navState.email, in: modelContext)
+            let savedPDFBill = try? SwiftDataBillService.shared.saveReviewedBill(from: draftToPersist, userEmail: navState.email, in: modelContext)
+            if let saved = savedPDFBill {
+                Task { try? await FirebaseRESTService.shared.syncBill(bill: saved) }
+            }
             NotificationManager.shared.notifyBillSaved(
                 billingMonth: draftToPersist.billingMonth.isEmpty ? billingPeriod : draftToPersist.billingMonth,
                 totalKWh: draftToPersist.totalKWh.isEmpty ? consumption.replacingOccurrences(of: " kWh", with: "") : draftToPersist.totalKWh

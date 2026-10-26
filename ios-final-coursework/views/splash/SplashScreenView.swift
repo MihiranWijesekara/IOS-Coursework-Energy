@@ -6,11 +6,49 @@
 //
 
 import SwiftUI
+import SwiftData
 
 public struct SplashScreenView: View {
     @EnvironmentObject var navState: AppNavigationState
+    @Query private var users: [User]
+    @AppStorage("hasRegisteredAccount") private var hasRegisteredAccount: Bool = false
+    @AppStorage("lastLoggedInEmail") private var lastLoggedInEmail: String = ""
     
     public init() {}
+    
+    /// First launch -> Create Account; returning user -> load profile and unlock via Face ID / passcode.
+    private func routeAfterSplash() {
+        if users.isEmpty && !hasRegisteredAccount {
+            // Start the registration form blank (AppNavigationState ships with sample identity values).
+            navState.firstName = ""
+            navState.lastName = ""
+            navState.email = ""
+            navState.phone = ""
+            withAnimation(.easeInOut(duration: 0.35)) {
+                navState.navigate(to: .createAccount)
+            }
+            return
+        }
+        
+        let returningUser = users.first { $0.email.lowercased() == lastLoggedInEmail.lowercased() } ?? users.first
+        if let user = returningUser {
+            navState.firstName = user.firstName
+            navState.lastName = user.lastName
+            navState.email = user.email
+            navState.phone = user.phone ?? ""
+            navState.province = user.province ?? ""
+            navState.district = user.district ?? ""
+            navState.town = user.town ?? ""
+            withAnimation(.easeInOut(duration: 0.35)) {
+                navState.navigate(to: .secureData)
+            }
+        } else {
+            // Registered before but local data is gone: sign in again.
+            withAnimation(.easeInOut(duration: 0.35)) {
+                navState.navigate(to: .signIn)
+            }
+        }
+    }
     
     public var body: some View {
         ZStack {
@@ -65,16 +103,8 @@ public struct SplashScreenView: View {
             }
         }
         .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                withAnimation(.easeInOut(duration: 0.35)) {
-                    navState.navigate(to: .signIn)
-                }
-            }
-        }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            withAnimation(.easeInOut(duration: 0.25)) {
-                navState.navigate(to: .createAccount)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                routeAfterSplash()
             }
         }
     }

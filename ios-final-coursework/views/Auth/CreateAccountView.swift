@@ -15,6 +15,11 @@ public struct CreateAccountView: View {
     @State private var confirmPassword: String = ""
     @State private var showAlert: Bool = false
     @State private var alertMessage: String = ""
+    @State private var passcodeInput: String = ""
+    
+    @AppStorage("userPasscode") private var storedPasscode: String = "123456"
+    @AppStorage("hasRegisteredAccount") private var hasRegisteredAccount: Bool = false
+    @AppStorage("lastLoggedInEmail") private var lastLoggedInEmail: String = ""
     
     // Sri Lankan Province, District, and Town Hierarchy Data Structure
     private let locationData: [String: [String: [String]]] = [
@@ -146,10 +151,30 @@ public struct CreateAccountView: View {
                 VStack(spacing: 16) {
                     secureInputField(label: "Password", text: $password)
                     secureInputField(label: "Confirm Password", text: $confirmPassword)
+                    
+                    // Optional numeric passcode used to unlock the app when Face ID / Touch ID is unavailable
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Passcode (optional, 4–6 digits)")
+                            .font(.system(size: 13, weight: .regular))
+                            .foregroundColor(EnergyLensTheme.textSecondary)
+                        
+                        SecureField("Passcode (default 123456)", text: $passcodeInput)
+                            .keyboardType(.numberPad)
+                            .font(.system(size: 16, weight: .regular))
+                            .foregroundColor(EnergyLensTheme.textPrimary)
+                            .padding(.bottom, 4)
+                            .onChange(of: passcodeInput) { _, newValue in
+                                let digits = String(newValue.filter { $0.isASCII && $0.isNumber }.prefix(6))
+                                if digits != newValue { passcodeInput = digits }
+                            }
+                        
+                        Divider()
+                            .background(EnergyLensTheme.fieldBorder)
+                    }
                 }
                 .padding(.bottom, 8)
                 
-                Text("Use at least 8 characters for your password.")
+                Text("Use at least 8 characters for your password. Leave the passcode blank to use 123456.")
                     .font(.system(size: 13, weight: .regular))
                     .foregroundColor(EnergyLensTheme.textSecondary)
                     .padding(.bottom, 28)
@@ -173,6 +198,12 @@ public struct CreateAccountView: View {
 
                     if password != confirmPassword {
                         alertMessage = "Passwords do not match. Please re-enter them."
+                        showAlert = true
+                        return
+                    }
+
+                    if !passcodeInput.isEmpty && !(4...6).contains(passcodeInput.count) {
+                        alertMessage = "Passcode must be 4 to 6 digits, or leave it blank to use 123456."
                         showAlert = true
                         return
                     }
@@ -203,7 +234,23 @@ public struct CreateAccountView: View {
                         navState.province = savedUser.province ?? ""
                         navState.district = savedUser.district ?? ""
                         navState.town = savedUser.town ?? ""
-                        navState.navigate(to: .secureData)
+                        
+                        // Remember the registration and the unlock passcode on this device
+                        storedPasscode = passcodeInput.isEmpty ? "123456" : passcodeInput
+                        hasRegisteredAccount = true
+                        lastLoggedInEmail = savedUser.email
+                        try? SwiftDataApplianceService.shared.seedIfNeeded(context: modelContext)
+                        
+                        // Sync the new account to Firebase (Auth + Firestore profile)
+                        let registeredPassword = password
+                        Task {
+                            try? await FirebaseRESTService.shared.signUp(email: trimmedEmail, password: registeredPassword)
+                            try? await FirebaseRESTService.shared.syncUserProfile(user: savedUser)
+                        }
+                        
+                        // First-time registration goes straight to Home
+                        navState.isAuthenticated = true
+                        navState.navigate(to: .home)
                     } catch {
                         alertMessage = "Unable to save the account. Please try again."
                         showAlert = true

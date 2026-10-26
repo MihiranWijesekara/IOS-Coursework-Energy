@@ -3,7 +3,9 @@ import SwiftUI
 public struct SignInView: View {
     @EnvironmentObject var navState: AppNavigationState
     @Environment(\.modelContext) private var modelContext
-    @State private var email: String = "achintha@example.com"
+    @AppStorage("hasRegisteredAccount") private var hasRegisteredAccount: Bool = false
+    @AppStorage("lastLoggedInEmail") private var lastLoggedInEmail: String = ""
+    @State private var email: String = ""
     @State private var password: String = ""
     @State private var showAlert: Bool = false
     @State private var alertMessage: String = ""
@@ -112,6 +114,12 @@ public struct SignInView: View {
                         navState.district = user.district ?? navState.district
                         navState.town = user.town ?? navState.town
                         navState.isAuthenticated = true
+                        hasRegisteredAccount = true
+                        lastLoggedInEmail = user.email
+                        
+                        // Sign in to Firebase Auth in the background
+                        let enteredPassword = password
+                        Task { _ = try? await FirebaseRESTService.shared.signIn(email: trimmedEmail, password: enteredPassword) }
                         navState.navigate(to: .home)
                     } else {
                         alertMessage = "Invalid email or password. Please try again."
@@ -127,6 +135,9 @@ public struct SignInView: View {
         }
         .padding(.horizontal, 24)
         .background(Color.white.ignoresSafeArea())
+        .onAppear {
+            if email.isEmpty { email = lastLoggedInEmail }
+        }
         .alert("Sign in", isPresented: $showAlert) {
             Button("OK", role: .cancel) {}
         } message: {

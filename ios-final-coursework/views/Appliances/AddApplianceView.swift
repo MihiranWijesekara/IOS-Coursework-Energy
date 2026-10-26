@@ -356,8 +356,10 @@ public struct AddApplianceView: View {
                     usageMode: finalUsageMode,
                     daysPerWeek: finalDaysPerWeek
                 )
+                let edited = applianceToEdit
+                Task { try? await FirebaseRESTService.shared.syncAppliance(appliance: edited, userEmail: navState.email) }
             } else {
-                _ = try SwiftDataApplianceService.shared.createAppliance(
+                let created = try SwiftDataApplianceService.shared.createAppliance(
                     context: modelContext,
                     name: trimmedName,
                     brand: applianceBrandName,
@@ -368,6 +370,7 @@ public struct AddApplianceView: View {
                     usageMode: finalUsageMode,
                     daysPerWeek: finalDaysPerWeek
                 )
+                Task { try? await FirebaseRESTService.shared.syncAppliance(appliance: created, userEmail: navState.email) }
             }
 
             if let onSave {

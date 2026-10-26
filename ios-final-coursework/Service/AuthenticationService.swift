@@ -28,22 +28,32 @@ public final class AuthenticationService: ObservableObject {
         }
     }
     
+    /// True when Face ID / Touch ID hardware is present and enrolled.
+    public func canUseBiometrics() -> Bool {
+        var error: NSError?
+        return LAContext().canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error)
+    }
+    
+    /// Evaluates biometrics. Completes with `false` immediately when biometrics are unavailable,
+    /// or when evaluation fails / is cancelled, so callers can fall back to the passcode pad.
     public func authenticateWithBiometrics(completion: @escaping (Bool) -> Void) {
         let context = LAContext()
         var error: NSError?
         
         let reason = "Authenticate to access EnergyLens and protect your energy data."
         
-        if context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) {
-            context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason) { success, _ in
-                DispatchQueue.main.async {
-                    completion(success)
-                }
+        guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) else {
+            DispatchQueue.main.async {
+                self.biometryError = error?.localizedDescription
+                completion(false)
             }
-        } else {
-            // Simulator or hardware without biometrics enrolled: simulate smooth fallback
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                completion(true)
+            return
+        }
+        
+        context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason) { success, evalError in
+            DispatchQueue.main.async {
+                self.biometryError = success ? nil : evalError?.localizedDescription
+                completion(success)
             }
         }
     }

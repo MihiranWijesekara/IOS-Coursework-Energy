@@ -6,11 +6,36 @@
 //
 
 import SwiftUI
+import SwiftData
 
 public struct ProfileView: View {
     @EnvironmentObject var navState: AppNavigationState
+    @Environment(\.modelContext) private var modelContext
+    @Query private var users: [User]
+    
+    @AppStorage("userPasscode") private var storedPasscode: String = "123456"
+    
+    // Sheet states
+    @State private var showEditProfileSheet = false
+    @State private var showChangePasscodeSheet = false
+    
+    // Edit Profile form fields
+    @State private var editFirstName = ""
+    @State private var editLastName = ""
+    @State private var editPhone = ""
+    @State private var editTown = ""
+    
+    // Change Passcode form fields
+    @State private var newPasscode = ""
+    @State private var confirmPasscode = ""
+    @State private var passcodeAlertMessage = ""
+    @State private var showPasscodeAlert = false
     
     public init() {}
+    
+    private var currentUser: User? {
+        users.first(where: { $0.email.lowercased() == navState.email.lowercased() }) ?? users.first
+    }
     
     public var body: some View {
         VStack(spacing: 0) {
@@ -51,6 +76,15 @@ public struct ProfileView: View {
                         }
                         
                         Spacer()
+                        
+                        Button(action: {
+                            prepareEditProfile()
+                            showEditProfileSheet = true
+                        }) {
+                            Image(systemName: "pencil.circle.fill")
+                                .font(.system(size: 26))
+                                .foregroundColor(.white.opacity(0.9))
+                        }
                     }
                     .padding(20)
                     .background(EnergyLensTheme.cardGradient)
@@ -59,27 +93,34 @@ public struct ProfileView: View {
                     
                     // Settings and Options Menu
                     VStack(spacing: 0) {
-                        menuRow(icon: "person", iconBg: Color(red: 0.25, green: 0.60, blue: 0.85), title: "Profile", subtitle: nil, rightValue: nil, showDivider: true) {}
+                        menuRow(icon: "person", iconBg: Color(red: 0.25, green: 0.60, blue: 0.85), title: "Edit Profile & Location", subtitle: "Update name, phone & town", rightValue: nil, showDivider: true) {
+                            prepareEditProfile()
+                            showEditProfileSheet = true
+                        }
                         
                         menuRow(icon: "location.circle", iconBg: Color(red: 0.50, green: 0.40, blue: 0.80), title: "Location & Weather", subtitle: navState.town.isEmpty ? "Colombo" : navState.town, rightValue: nil, showDivider: true) {
                             navState.navigate(to: .weatherDetails)
                         }
                         
-                        menuRow(icon: "sun.max", iconBg: Color(red: 0.92, green: 0.65, blue: 0.20), title: "Weather Settings", subtitle: nil, rightValue: nil, showDivider: true) {}
-                        
                         menuRow(icon: "bell", iconBg: Color(red: 0.40, green: 0.50, blue: 0.85), title: "Notifications", subtitle: nil, rightValue: nil, showDivider: true) {
                             navState.navigate(to: .notifications)
                         }
                         
-                        menuRow(icon: "faceid", iconBg: Color(red: 0.15, green: 0.60, blue: 0.40), title: "Face ID & Security", subtitle: "Face ID enabled", rightValue: nil, showDivider: true) {}
+                        menuRow(icon: "faceid", iconBg: Color(red: 0.15, green: 0.60, blue: 0.40), title: "Face ID & Security", subtitle: "Change fallback passcode (PIN)", rightValue: nil, showDivider: true) {
+                            newPasscode = ""
+                            confirmPasscode = ""
+                            showChangePasscodeSheet = true
+                        }
                         
                         menuRow(icon: "powerplug", iconBg: Color(red: 0.15, green: 0.60, blue: 0.65), title: "Appliance Preferences", subtitle: nil, rightValue: nil, showDivider: true) {
                             navState.navigate(to: .appliances)
                         }
                         
+                        menuRow(icon: "icloud.fill", iconBg: Color(red: 0.20, green: 0.55, blue: 0.90), title: "Firebase Cloud Sync", subtitle: "energylens-coursework", rightValue: "Active", showDivider: true) {}
+                        
                         menuRow(icon: "ruler", iconBg: Color(red: 0.85, green: 0.65, blue: 0.20), title: "Units & Currency", subtitle: nil, rightValue: "kWh / LKR", showDivider: true) {}
                         
-                        menuRow(icon: "info.circle", iconBg: Color(red: 0.45, green: 0.40, blue: 0.80), title: "About EnergyLens", subtitle: nil, rightValue: nil, showDivider: false) {}
+                        menuRow(icon: "info.circle", iconBg: Color(red: 0.45, green: 0.40, blue: 0.80), title: "About EnergyLens", subtitle: "Coursework v1.0", rightValue: nil, showDivider: false) {}
                     }
                     .background(Color.white)
                     .cornerRadius(18)
@@ -87,7 +128,49 @@ public struct ProfileView: View {
                         RoundedRectangle(cornerRadius: 18)
                             .stroke(EnergyLensTheme.borderSubtle, lineWidth: 1)
                     )
-                    .padding(.bottom, 20)
+                    
+                    // Viva Account Actions
+                    VStack(spacing: 12) {
+                        Button(action: {
+                            navState.navigate(to: .secureData)
+                        }) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "lock.shield.fill")
+                                    .font(.system(size: 16))
+                                Text("Lock App (Test Biometrics)")
+                                    .font(.system(size: 15, weight: .semibold))
+                            }
+                            .foregroundColor(EnergyLensTheme.textPrimary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(Color.white)
+                            .cornerRadius(14)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .stroke(EnergyLensTheme.borderSubtle, lineWidth: 1.2)
+                            )
+                        }
+                        
+                        Button(action: {
+                            navState.isAuthenticated = false
+                            navState.navigate(to: .signIn)
+                        }) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "rectangle.portrait.and.arrow.right")
+                                    .font(.system(size: 16))
+                                Text("Sign Out")
+                                    .font(.system(size: 15, weight: .bold))
+                            }
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(Color(red: 0.88, green: 0.24, blue: 0.24))
+                            .cornerRadius(14)
+                            .shadow(color: Color.red.opacity(0.2), radius: 6, x: 0, y: 3)
+                        }
+                    }
+                    .padding(.top, 4)
+                    .padding(.bottom, 24)
                 }
                 .padding(.horizontal, 20)
             }
@@ -107,6 +190,174 @@ public struct ProfileView: View {
             }
         }
         .background(EnergyLensTheme.screenBackground.ignoresSafeArea())
+        .sheet(isPresented: $showEditProfileSheet) {
+            editProfileSheet
+        }
+        .sheet(isPresented: $showChangePasscodeSheet) {
+            changePasscodeSheet
+        }
+    }
+    
+    // MARK: - Edit Profile Sheet
+    private var editProfileSheet: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 18) {
+                Text("Edit Profile & Location")
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundColor(EnergyLensTheme.textPrimary)
+                    .padding(.top, 10)
+                
+                VStack(spacing: 16) {
+                    sheetInputField(label: "First Name", text: $editFirstName)
+                    sheetInputField(label: "Last Name", text: $editLastName)
+                    sheetInputField(label: "Phone Number", text: $editPhone)
+                    sheetInputField(label: "Town / City", text: $editTown)
+                }
+                
+                Spacer()
+                
+                GradientButton(title: "Save & Sync Cloud") {
+                    saveProfile()
+                    showEditProfileSheet = false
+                }
+                .padding(.bottom, 16)
+            }
+            .padding(.horizontal, 24)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        showEditProfileSheet = false
+                    }
+                }
+            }
+        }
+    }
+    
+    // MARK: - Change Passcode Sheet
+    private var changePasscodeSheet: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 18) {
+                Text("Change Passcode")
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundColor(EnergyLensTheme.textPrimary)
+                    .padding(.top, 10)
+                
+                Text("Enter a new 4 to 6 digit numeric PIN to unlock EnergyLens when Biometrics are not used.")
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundColor(EnergyLensTheme.textSecondary)
+                
+                VStack(spacing: 16) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("New Passcode (4-6 digits)")
+                            .font(.system(size: 13, weight: .regular))
+                            .foregroundColor(EnergyLensTheme.textSecondary)
+                        
+                        SecureField("New Passcode", text: $newPasscode)
+                            .keyboardType(.numberPad)
+                            .font(.system(size: 16))
+                            .padding(.bottom, 4)
+                            .onChange(of: newPasscode) { _, newValue in
+                                let digits = String(newValue.filter { $0.isASCII && $0.isNumber }.prefix(6))
+                                if digits != newValue { newPasscode = digits }
+                            }
+                        Divider().background(EnergyLensTheme.fieldBorder)
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Confirm Passcode")
+                            .font(.system(size: 13, weight: .regular))
+                            .foregroundColor(EnergyLensTheme.textSecondary)
+                        
+                        SecureField("Confirm Passcode", text: $confirmPasscode)
+                            .keyboardType(.numberPad)
+                            .font(.system(size: 16))
+                            .padding(.bottom, 4)
+                            .onChange(of: confirmPasscode) { _, newValue in
+                                let digits = String(newValue.filter { $0.isASCII && $0.isNumber }.prefix(6))
+                                if digits != newValue { confirmPasscode = digits }
+                            }
+                        Divider().background(EnergyLensTheme.fieldBorder)
+                    }
+                }
+                
+                Spacer()
+                
+                GradientButton(title: "Update Passcode") {
+                    if newPasscode.count < 4 || newPasscode.count > 6 {
+                        passcodeAlertMessage = "Passcode must be between 4 and 6 digits."
+                        showPasscodeAlert = true
+                        return
+                    }
+                    if newPasscode != confirmPasscode {
+                        passcodeAlertMessage = "Passcodes do not match."
+                        showPasscodeAlert = true
+                        return
+                    }
+                    
+                    storedPasscode = newPasscode
+                    showChangePasscodeSheet = false
+                }
+                .padding(.bottom, 16)
+            }
+            .padding(.horizontal, 24)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        showChangePasscodeSheet = false
+                    }
+                }
+            }
+            .alert("Passcode", isPresented: $showPasscodeAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(passcodeAlertMessage)
+            }
+        }
+    }
+    
+    private func sheetInputField(label: String, text: Binding<String>) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.system(size: 13, weight: .regular))
+                .foregroundColor(EnergyLensTheme.textSecondary)
+            
+            TextField(label, text: text)
+                .font(.system(size: 16, weight: .regular))
+                .foregroundColor(EnergyLensTheme.textPrimary)
+                .padding(.bottom, 4)
+            
+            Divider()
+                .background(EnergyLensTheme.fieldBorder)
+        }
+    }
+    
+    private func prepareEditProfile() {
+        editFirstName = navState.firstName
+        editLastName = navState.lastName
+        editPhone = navState.phone
+        editTown = navState.town
+    }
+    
+    private func saveProfile() {
+        navState.firstName = editFirstName.trimmingCharacters(in: .whitespacesAndNewlines)
+        navState.lastName = editLastName.trimmingCharacters(in: .whitespacesAndNewlines)
+        navState.phone = editPhone.trimmingCharacters(in: .whitespacesAndNewlines)
+        navState.town = editTown.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        if let user = currentUser {
+            user.firstName = navState.firstName
+            user.lastName = navState.lastName
+            user.phone = navState.phone.isEmpty ? nil : navState.phone
+            user.town = navState.town.isEmpty ? nil : navState.town
+            
+            try? modelContext.save()
+            
+            Task {
+                try? await FirebaseRESTService.shared.syncUserProfile(user: user)
+            }
+        }
     }
     
     @ViewBuilder
@@ -148,8 +399,8 @@ public struct ProfileView: View {
                     
                     if let rv = rightValue {
                         Text(rv)
-                            .font(.system(size: 14, weight: .regular))
-                            .foregroundColor(EnergyLensTheme.textSecondary)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(rv == "Active" ? Color(red: 0.12, green: 0.60, blue: 0.35) : EnergyLensTheme.textSecondary)
                             .padding(.trailing, 4)
                     }
                     
