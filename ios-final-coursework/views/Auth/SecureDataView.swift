@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import LocalAuthentication
 
 public struct SecureDataView: View {
     @EnvironmentObject var navState: AppNavigationState
@@ -66,7 +67,7 @@ public struct SecureDataView: View {
         }
     }
     
-    // MARK: - Subviews
+ 
     
     private var headerCard: some View {
         VStack(spacing: 18) {
@@ -157,8 +158,7 @@ public struct SecureDataView: View {
         }
         .padding(.horizontal, 24)
     }
-    
-    // MARK: - Helpers
+
     
     private var biometricName: String {
         authService.biometryType == .touchID ? "Touch ID" : "Face ID"
@@ -200,7 +200,7 @@ public struct SecureDataView: View {
         navState.navigate(to: .home)
     }
     
-    /// Makes sure the unlocking user's profile is loaded (e.g. when arriving via the Sign In screen).
+
     private func loadProfileIfNeeded() {
         guard !lastLoggedInEmail.isEmpty,
               navState.email.lowercased() != lastLoggedInEmail.lowercased(),
@@ -214,3 +214,4 @@ public struct SecureDataView: View {
         navState.town = user.town ?? navState.town
     }
 }
+
