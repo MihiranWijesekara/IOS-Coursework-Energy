@@ -367,9 +367,22 @@ public struct HomeDashboardView: View {
             }
         }
         .background(EnergyLensTheme.screenBackground.ignoresSafeArea())
+        .onAppear {
+            syncWidgetSnapshot()
+        }
         .task {
             await loadLiveWeather()
         }
+    }
+    
+    private func syncWidgetSnapshot() {
+        WidgetDataStore.shared.syncFrom(
+            bills: pdfSavedBills,
+            appliances: savedAppliances,
+            user: savedUsers.first,
+            temperatureC: weatherTemp ?? sharedWeather.currentTemperature,
+            humidityPercent: sharedWeather.currentHumidity
+        )
     }
     
     private func loadLiveWeather() async {
@@ -400,6 +413,9 @@ public struct HomeDashboardView: View {
                 )
                 modelContext.insert(weatherRecord)
                 try? modelContext.save()
+
+                // Update Home Screen Widget with live temperature
+                syncWidgetSnapshot()
             }
         } catch {
             print("Weather fetch error: \(error.localizedDescription)")

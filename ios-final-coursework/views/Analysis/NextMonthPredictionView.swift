@@ -93,11 +93,26 @@ public struct NextMonthPredictionView: View {
     }
     
     public var body: some View {
-        if !hasBills {
-            PredictionEmptyView()
-        } else {
-            contentView
+        Group {
+            if !hasBills {
+                PredictionEmptyView()
+            } else {
+                contentView
+            }
         }
+        .onAppear {
+            syncWidgetSnapshot()
+        }
+    }
+
+    private func syncWidgetSnapshot() {
+        WidgetDataStore.shared.syncFrom(
+            bills: sortedBills,
+            appliances: savedAppliances,
+            user: savedUsers.first,
+            temperatureC: weatherService.currentTemperature,
+            humidityPercent: weatherService.currentHumidity
+        )
     }
     
     private var contentView: some View {
