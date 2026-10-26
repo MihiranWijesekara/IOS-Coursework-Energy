@@ -80,7 +80,7 @@ public final class SwiftDataBillService {
         return bill
     }
     
-    /// Update an existing saved bill permanently
+    /// Update an existing saved bill permanently and synchronize corresponding SavedBill & Firebase
     public func updateBill(
         context: ModelContext,
         bill: ElectricityBill,
@@ -110,6 +110,50 @@ public final class SwiftDataBillService {
         bill.dueDate = dueDate
         bill.isVerified = true
         
+        // Find and update the matching SavedBill in context
+        let billId = bill.id
+        let descriptor = FetchDescriptor<SavedBill>()
+        if let allSaved = try? context.fetch(descriptor) {
+            let matched = allSaved.first { s in
+                s.id == billId ||
+                (!accountNumber.isEmpty && s.accountNumber == accountNumber &&
+                 (s.billingMonth.lowercased() == billingPeriodText.lowercased() || s.readingDate == billingPeriodText))
+            }
+            if let matched {
+                matched.accountNumber = accountNumber
+                matched.customerName = customerName ?? ""
+                matched.previousReading = prevReading ?? 0
+                matched.currentReading = currReading ?? 0
+                matched.hasReadingsValue = (prevReading != nil || currReading != nil)
+                matched.totalKWh = max(0, consumptionKwh)
+                if let currentCharges {
+                    matched.electricityCharge = currentCharges
+                    matched.hasEnergyChargeValue = true
+                }
+                if let taxesAndLevies {
+                    matched.sscLevy = taxesAndLevies
+                    matched.hasLevyValue = true
+                }
+                if let outstandingBalance {
+                    matched.outstandingBalance = outstandingBalance
+                    matched.hasOutstandingValue = true
+                }
+                matched.totalAmount = totalAmountPayable
+                matched.monthlyBill = totalAmountPayable
+                matched.hasMonthlyBillValue = true
+                matched.billingMonth = billingPeriodText
+                if let dueDate {
+                    let df = DateFormatter()
+                    df.dateFormat = "yyyy-MM-dd"
+                    matched.dueDate = df.string(from: dueDate)
+                }
+
+                Task {
+                    try? await FirebaseRESTService.shared.syncBill(bill: matched)
+                }
+            }
+        }
+
         try context.save()
     }
     
@@ -135,9 +179,25 @@ public final class SwiftDataBillService {
         return try context.fetch(descriptor)
     }
     
-    /// Delete a bill
+    /// Delete an ElectricityBill and its corresponding SavedBill
     public func deleteBill(context: ModelContext, bill: ElectricityBill) throws {
+        let billId = bill.id
+        let acct = bill.accountNumber
+        let period = bill.billingPeriodText
+
         context.delete(bill)
+
+        let descriptor = FetchDescriptor<SavedBill>()
+        if let allSaved = try? context.fetch(descriptor) {
+            let matching = allSaved.filter { s in
+                s.id == billId ||
+                (!acct.isEmpty && s.accountNumber == acct &&
+                 (s.billingMonth.lowercased() == period.lowercased() || s.readingDate == period))
+            }
+            for m in matching {
+                context.delete(m)
+            }
+        }
         try context.save()
     }
 
@@ -189,13 +249,13 @@ public final class SwiftDataBillService {
 
     // MARK: - PDF Specification: SavedBill Persistence Methods
 
-    /// Fetches all saved bills for a user sorted newest first.
+    /// Fetches all saved bills for a user sorted newest first by actual billing date.
     public func fetchBills(for email: String, in context: ModelContext) -> [SavedBill] {
         let descriptor = FetchDescriptor<SavedBill>(
-            predicate: #Predicate { $0.userEmail == email },
-            sortBy: [SortDescriptor(\.scannedDate, order: .reverse)]
+            predicate: #Predicate { $0.userEmail == email }
         )
-        return (try? context.fetch(descriptor)) ?? []
+        let bills = (try? context.fetch(descriptor)) ?? []
+        return bills.sorted { $0.actualBillingDate > $1.actualBillingDate }
     }
 
     /// Detects if a bill with the same Account Number and Reading Date (or Billing Month + Consumption) already exists.
@@ -310,38 +370,87 @@ public final class SwiftDataBillService {
         billToSave.rawOCRText = structured.rawOCRText
         billToSave.extractionConfidence = Double(structured.extractionConfidence)
 
-        // Synchronize with ElectricityBill so legacy/other screens stay updated automatically
+        // Lookup matching User by userEmail for ownership
+        var matchedUser: User? = nil
+        if !userEmail.isEmpty {
+            let userDesc = FetchDescriptor<User>()
+            if let users = try? context.fetch(userDesc) {
+                matchedUser = users.first { $0.email.lowercased() == userEmail.lowercased() }
+            }
+        }
+
+        // Synchronize with ElectricityBill using the exact same ID
         let cal = Calendar.current
         let rDateObj = structured.readingDate ?? Date()
         let pStart = cal.date(byAdding: .day, value: -30, to: rDateObj) ?? rDateObj
-        _ = try? saveBill(
-            context: context,
-            periodStart: pStart,
-            periodEnd: rDateObj,
-            prevReading: structured.previousReading,
-            currReading: structured.currentReading,
-            consumptionKwh: Double(consumption),
-            billAmount: NSDecimalNumber(decimal: finalTotalDecimal).doubleValue,
-            currency: structured.currency,
-            provider: structured.provider ?? "CEB",
-            accountNumber: structured.accountNumber ?? "",
-            customerName: structured.customerName,
-            customerAddress: nil,
-            tariffCategory: structured.tariffCode,
-            billDate: structured.readingDate,
-            dueDate: structured.paymentDueDate,
-            billingPeriodText: resolvedBillingMonth,
-            currentCharges: structured.energyCharge.map { NSDecimalNumber(decimal: $0).doubleValue },
-            fixedCharges: nil,
-            taxesAndLevies: structured.levyAmount.map { NSDecimalNumber(decimal: $0).doubleValue },
-            previousBalance: structured.broughtForward.map { NSDecimalNumber(decimal: $0).doubleValue },
-            payments: structured.payments.map { NSDecimalNumber(decimal: $0).doubleValue },
-            outstandingBalance: structured.outstandingBalance.map { NSDecimalNumber(decimal: $0).doubleValue },
-            totalAmountPayable: NSDecimalNumber(decimal: finalTotalDecimal).doubleValue,
-            rawOcrText: structured.rawOCRText,
-            imageData: nil,
-            isVerified: true
-        )
+
+        let elecDesc = FetchDescriptor<ElectricityBill>()
+        let existingElecBills = (try? context.fetch(elecDesc)) ?? []
+        let targetElecID = billToSave.id
+        let existingElec = existingElecBills.first { e in
+            e.id == targetElecID ||
+            (!billToSave.accountNumber.isEmpty && e.accountNumber == billToSave.accountNumber && e.billingPeriodText.lowercased() == resolvedBillingMonth.lowercased())
+        }
+
+        if let existingElec {
+            existingElec.periodStart = pStart
+            existingElec.periodEnd = rDateObj
+            existingElec.prevReading = structured.previousReading
+            existingElec.currReading = structured.currentReading
+            existingElec.consumptionKwh = Double(consumption)
+            existingElec.billAmount = NSDecimalNumber(decimal: finalTotalDecimal).doubleValue
+            existingElec.currency = structured.currency
+            existingElec.provider = structured.provider ?? "CEB"
+            existingElec.accountNumber = structured.accountNumber ?? ""
+            existingElec.customerName = structured.customerName
+            existingElec.tariffCategory = structured.tariffCode
+            existingElec.billDate = structured.readingDate
+            existingElec.dueDate = structured.paymentDueDate
+            existingElec.billingPeriodText = resolvedBillingMonth
+            existingElec.currentCharges = structured.energyCharge.map { NSDecimalNumber(decimal: $0).doubleValue }
+            existingElec.taxesAndLevies = structured.levyAmount.map { NSDecimalNumber(decimal: $0).doubleValue }
+            existingElec.previousBalance = structured.broughtForward.map { NSDecimalNumber(decimal: $0).doubleValue }
+            existingElec.payments = structured.payments.map { NSDecimalNumber(decimal: $0).doubleValue }
+            existingElec.outstandingBalance = structured.outstandingBalance.map { NSDecimalNumber(decimal: $0).doubleValue }
+            existingElec.totalAmountPayable = NSDecimalNumber(decimal: finalTotalDecimal).doubleValue
+            existingElec.rawOcrText = structured.rawOCRText
+            existingElec.isVerified = true
+            if let matchedUser {
+                existingElec.user = matchedUser
+            }
+        } else {
+            let newElec = ElectricityBill(
+                id: billToSave.id,
+                periodStart: pStart,
+                periodEnd: rDateObj,
+                prevReading: structured.previousReading,
+                currReading: structured.currentReading,
+                consumptionKwh: Double(consumption),
+                billAmount: NSDecimalNumber(decimal: finalTotalDecimal).doubleValue,
+                currency: structured.currency,
+                provider: structured.provider ?? "CEB",
+                accountNumber: structured.accountNumber ?? "",
+                customerName: structured.customerName,
+                customerAddress: nil,
+                tariffCategory: structured.tariffCode,
+                billDate: structured.readingDate,
+                dueDate: structured.paymentDueDate,
+                billingPeriodText: resolvedBillingMonth,
+                currentCharges: structured.energyCharge.map { NSDecimalNumber(decimal: $0).doubleValue },
+                fixedCharges: nil,
+                taxesAndLevies: structured.levyAmount.map { NSDecimalNumber(decimal: $0).doubleValue },
+                previousBalance: structured.broughtForward.map { NSDecimalNumber(decimal: $0).doubleValue },
+                payments: structured.payments.map { NSDecimalNumber(decimal: $0).doubleValue },
+                outstandingBalance: structured.outstandingBalance.map { NSDecimalNumber(decimal: $0).doubleValue },
+                totalAmountPayable: NSDecimalNumber(decimal: finalTotalDecimal).doubleValue,
+                rawOcrText: structured.rawOCRText,
+                uploadedAt: Date(),
+                imageData: nil,
+                isVerified: true,
+                user: matchedUser
+            )
+            context.insert(newElec)
+        }
 
         do {
             try context.save()
@@ -359,8 +468,26 @@ public final class SwiftDataBillService {
         return try? context.fetch(descriptor).first
     }
 
+    /// Delete a SavedBill and its corresponding ElectricityBill
     public func deleteBill(_ bill: SavedBill, in context: ModelContext) throws {
+        let billId = bill.id
+        let acct = bill.accountNumber
+        let period = bill.billingMonth
+        let rDate = bill.readingDate
+
         context.delete(bill)
+
+        let descriptor = FetchDescriptor<ElectricityBill>()
+        if let allElec = try? context.fetch(descriptor) {
+            let matching = allElec.filter { e in
+                e.id == billId ||
+                (!acct.isEmpty && e.accountNumber == acct &&
+                 (e.billingPeriodText.lowercased() == period.lowercased() || e.billingPeriodText == rDate))
+            }
+            for m in matching {
+                context.delete(m)
+            }
+        }
         try context.save()
     }
 

@@ -18,9 +18,13 @@ public struct NextMonthPredictionView: View {
     
     public init() {}
     
+    private var sortedBills: [SavedBill] {
+        pdfSavedBills.sorted { $0.actualBillingDate > $1.actualBillingDate }
+    }
+
     private var prediction: EnergyPrediction? {
         EnergyPredictionService.shared.predictNextMonth(
-            bills: pdfSavedBills,
+            bills: sortedBills,
             appliances: savedAppliances,
             user: savedUsers.first,
             temperatureC: weatherService.currentTemperature,
@@ -33,7 +37,7 @@ public struct NextMonthPredictionView: View {
     }
     
     private var latestKwh: Double {
-        pdfSavedBills.first?.totalKWh ?? 0.0
+        sortedBills.first?.totalKWh ?? 0.0
     }
     
     private var currencySymbol: String {
@@ -62,18 +66,27 @@ public struct NextMonthPredictionView: View {
         let df = DateFormatter()
         df.dateFormat = "MMM"
         
-        // Real historical bills only (oldest -> newest, up to 5), no invented data
-        let recent = Array(pdfSavedBills.prefix(5).reversed())
+        // Real historical bills sorted chronologically by actual billing date
+        let recent = Array(sortedBills.prefix(5).reversed())
         let actuals: [CGFloat] = recent.map { CGFloat(round($0.totalKWh)) }
         let forecast = CGFloat(forecastKwh)
         let maxVal = max(actuals.max() ?? 0, forecast, 1) * 1.25
         
         var monthNames: [String] = []
-        let count = actuals.count
-        for i in (0...count).reversed() {
-            if let date = cal.date(byAdding: .month, value: -i + 1, to: Date()) {
-                monthNames.append(df.string(from: date))
+        for bill in recent {
+            if !bill.billingMonth.isEmpty {
+                let parts = bill.billingMonth.components(separatedBy: " ")
+                if let first = parts.first, first.count >= 3 {
+                    monthNames.append(String(first.prefix(3)))
+                    continue
+                }
             }
+            monthNames.append(df.string(from: bill.actualBillingDate))
+        }
+        if let nextDate = cal.date(byAdding: .month, value: 1, to: sortedBills.first?.actualBillingDate ?? Date()) {
+            monthNames.append(df.string(from: nextDate))
+        } else {
+            monthNames.append("Next")
         }
         
         return (monthNames, actuals, forecast, maxVal)

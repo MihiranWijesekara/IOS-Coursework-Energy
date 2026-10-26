@@ -15,7 +15,8 @@ public struct BillAnalysisResultView: View {
     
     // Computed active bill values (Latest saved bill or fallback)
     private var activeBill: (periodText: String, kwh: Double, amountText: String, comparisonText: String, isIncrease: Bool) {
-        if let pdfLatest = pdfSavedBills.first {
+        let sortedPDF = pdfSavedBills.sorted { $0.actualBillingDate > $1.actualBillingDate }
+        if let pdfLatest = sortedPDF.first {
             let period = pdfLatest.billingMonth.isEmpty ? "Current Billing Period" : pdfLatest.billingMonth
             let curr = (pdfLatest.currency.uppercased() == "USD" || pdfLatest.currency == "$") ? "$" : "Rs."
             let billAmount = pdfLatest.monthlyBill > 0 ? pdfLatest.monthlyBill : pdfLatest.totalAmount
@@ -23,8 +24,8 @@ public struct BillAnalysisResultView: View {
             
             var comparison = "Latest imported bill"
             var isIncrease = false
-            if pdfSavedBills.count > 1 {
-                let previous = pdfSavedBills[1]
+            if sortedPDF.count > 1 {
+                let previous = sortedPDF[1]
                 if previous.totalKWh > 0 {
                     let diff = pdfLatest.totalKWh - previous.totalKWh
                     let pct = (diff / previous.totalKWh) * 100
@@ -48,8 +49,9 @@ public struct BillAnalysisResultView: View {
     
     // Dynamic chart data from user's real saved bills (oldest -> newest, up to 5)
     private var chartModel: (months: [String], values: [CGFloat], maxValue: CGFloat) {
-        if !pdfSavedBills.isEmpty {
-            let recent = Array(pdfSavedBills.prefix(5).reversed())
+        let sortedPDF = pdfSavedBills.sorted { $0.actualBillingDate > $1.actualBillingDate }
+        if !sortedPDF.isEmpty {
+            let recent = Array(sortedPDF.prefix(5).reversed())
             let ms = recent.map { bill -> String in
                 if !bill.billingMonth.isEmpty {
                     let parts = bill.billingMonth.components(separatedBy: " ")
@@ -60,7 +62,7 @@ public struct BillAnalysisResultView: View {
                 }
                 let df = DateFormatter()
                 df.dateFormat = "MMM"
-                return df.string(from: bill.scannedDate)
+                return df.string(from: bill.actualBillingDate)
             }
             let vs = recent.map { CGFloat(round($0.totalKWh)) }
             let maxV = max(vs.max() ?? 100, 50) * 1.25

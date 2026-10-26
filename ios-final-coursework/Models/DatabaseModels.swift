@@ -8,7 +8,7 @@
 import Foundation
 import SwiftData
 
-// MARK: - User Model
+
 @Model
 public final class User {
     @Attribute(.unique) public var id: UUID
@@ -21,7 +21,7 @@ public final class User {
     public var town: String?
     public var passwordHash: String
     
-    // Relationships (1-to-Many cascade delete)
+
     @Relationship(deleteRule: .cascade, inverse: \Appliance.user)
     public var appliances: [Appliance] = []
     
@@ -60,7 +60,7 @@ public final class User {
     }
 }
 
-// MARK: - Appliance Model
+
 @Model
 public final class Appliance {
     @Attribute(.unique) public var id: UUID
@@ -70,10 +70,9 @@ public final class Appliance {
     public var powerW: Int
     public var quantity: Int
     public var hoursPerDay: Double
-    public var usageMode: String         // "All day" or "Weekly"
-    public var daysPerWeek: Int?         // 1...7 when usageMode == "Weekly"
+    public var usageMode: String       
+    public var daysPerWeek: Int?         
 
-    // Relationship to User
     public var user: User?
 
     public init(
@@ -100,9 +99,7 @@ public final class Appliance {
         self.user = user
     }
 
-    /// Estimated monthly kWh based on the selected operating mode.
-    /// All-day appliances use 30 days/month; weekly appliances use the selected days per week x ~4.33 weeks.
-    public var estimatedMonthlyKwh: Double {
+   
         let effectiveDays: Double
 
         if usageMode == "Weekly" {
@@ -138,13 +135,13 @@ public final class Appliance {
 @Model
 public final class SavingsScenario {
     @Attribute(.unique) public var id: UUID
-    public var scenarioTitle: String          // e.g. "Reduce AC usage", "Wash full loads"
-    public var applianceName: String          // Targeted appliance
-    public var adjustmentType: String         // e.g. "Reduce hours per day", "Turn off on peak hours", "Upgrade to Inverter"
+    public var scenarioTitle: String       
+    public var applianceName: String        
+    public var adjustmentType: String         
     public var originalHoursPerDay: Double
     public var targetHoursPerDay: Double
-    public var estimatedKwhSaved: Double      // Projected monthly kWh reduction
-    public var estimatedLkrSaved: Double      // Projected monthly bill reduction in LKR
+    public var estimatedKwhSaved: Double     
+    public var estimatedLkrSaved: Double     
     public var createdAt: Date
     
     // Relationship to User
@@ -175,7 +172,7 @@ public final class SavingsScenario {
     }
 }
 
-// MARK: - Electricity Bill Model
+
 @Model
 public final class ElectricityBill {
     @Attribute(.unique) public var id: UUID
@@ -186,8 +183,7 @@ public final class ElectricityBill {
     public var consumptionKwh: Double
     public var billAmount: Double
     public var currency: String
-    
-    // Additional OCR & Bill Detail Fields
+
     public var provider: String = "CEB"                  // "CEB" or "LECO"
     public var accountNumber: String = ""               // e.g. "5410264908"
     public var customerName: String? = nil              // e.g. "R RANJITH"
@@ -208,7 +204,7 @@ public final class ElectricityBill {
     @Attribute(.externalStorage) public var imageData: Data? = nil // Compressed screenshot data
     public var isVerified: Bool = false                 // User confirmation flag
     
-    // Relationship to User
+ 
     public var user: User?
     
     public init(
@@ -307,7 +303,7 @@ public final class ElectricityBill {
     }
 }
 
-// MARK: - Prediction Model
+
 @Model
 public final class Prediction {
     @Attribute(.unique) public var id: UUID
@@ -339,7 +335,7 @@ public final class Prediction {
     }
 }
 
-// MARK: - Weather Data Model
+
 @Model
 public final class WeatherData {
     @Attribute(.unique) public var id: UUID
@@ -371,7 +367,7 @@ public final class WeatherData {
     }
 }
 
-// MARK: - SavedBill Model (PDF Specification)
+
 @Model
 public final class SavedBill {
     @Attribute(.unique) public var id: UUID
@@ -383,7 +379,7 @@ public final class SavedBill {
     public var providerName: String
     public var scannedDate: Date
 
-    // Extended Electricity Bill & CEB / LECO Fields (Defaulted for lightweight migration)
+   
     public var accountNumber: String = ""
     public var customerName: String = ""
     public var tariffCategory: String = ""
@@ -401,7 +397,6 @@ public final class SavedBill {
     public var billURL: String = ""
     public var isCEBeBillFormat: Bool = false
 
-    // Precision Metadata Fields
     public var formatTypeRaw: String = "Standard Bill"
     public var currency: String = "LKR"
     public var rawOCRText: String = ""
@@ -488,7 +483,6 @@ public final class SavedBill {
         self.hasMonthlyBillValue = hasMonthlyBillValue
     }
 
-    // Decimal-safe helpers
     public var totalDueDecimal: Decimal {
         Decimal(string: String(format: "%.2f", totalAmount), locale: Locale(identifier: "en_US_POSIX")) ?? Decimal(totalAmount)
     }
@@ -496,6 +490,25 @@ public final class SavedBill {
     public var monthlyBillDecimal: Decimal? {
         guard hasMonthlyBillValue || monthlyBill > 0 else { return nil }
         return Decimal(string: String(format: "%.2f", monthlyBill), locale: Locale(identifier: "en_US_POSIX"))
+    }
+
+    /// Chronological billing date for sorting, analytics, and Core ML
+    public var actualBillingDate: Date {
+        if !readingDate.isEmpty, let d = BillExtractionDraft.parseFlexibleDate(readingDate) {
+            return d
+        }
+        let df = DateFormatter()
+        df.locale = Locale(identifier: "en_US_POSIX")
+        for fmt in ["MMMM yyyy", "MMM yyyy", "yyyy-MM", "MM/yyyy", "MM-yyyy", "yyyy-MM-dd", "dd/MM/yyyy"] {
+            df.dateFormat = fmt
+            if !billingMonth.isEmpty, let d = df.date(from: billingMonth.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                return d
+            }
+            if !readingDate.isEmpty, let d = df.date(from: readingDate.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                return d
+            }
+        }
+        return scannedDate
     }
 
     public func toDraft() -> BillExtractionDraft {
@@ -530,7 +543,6 @@ public final class SavedBill {
     }
 }
 
-// MARK: - SwiftData Schema Aliases
 public typealias SavedUser = User
 public typealias SavedAppliance = Appliance
 public typealias SavedScenario = SavingsScenario

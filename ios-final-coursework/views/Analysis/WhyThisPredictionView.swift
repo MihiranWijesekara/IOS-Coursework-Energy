@@ -18,8 +18,9 @@ public struct WhyThisPredictionView: View {
     public init() {}
     
     private var prediction: EnergyPrediction? {
-        EnergyPredictionService.shared.predictNextMonth(
-            bills: savedBills,
+        let sorted = savedBills.sorted { $0.actualBillingDate > $1.actualBillingDate }
+        return EnergyPredictionService.shared.predictNextMonth(
+            bills: sorted,
             appliances: savedAppliances,
             user: savedUsers.first,
             temperatureC: weatherService.currentTemperature,

@@ -13,7 +13,7 @@ import CoreML
 public struct EnergyPrediction {
     public let predictedKWh: Double
     public let predictedCost: Double
-    public let currency: String            // "Rs." or "$"
+    public let currency: String            
     public let usedCoreML: Bool
     public let billsAnalyzed: Int
     public let historicalAvgKWh: Double
@@ -29,7 +29,7 @@ public final class EnergyPredictionService {
     public static let shared = EnergyPredictionService()
     private init() {}
 
-    // MARK: - Core ML model
+
 
     private lazy var coreMLModel: MLModel? = {
         for name in ["EnergyBillPredictor", "EnergyBillPredictor 1", "EnergyBillPredictor_1"] {
@@ -41,10 +41,10 @@ public final class EnergyPredictionService {
         return nil
     }()
 
-    // MARK: - Fallback regression (trained on the same 25-row dataset as the CSV)
+
 
     private static let trainingRows: [[Double]] = [
-        // historicalAvgKWh, applianceMonthlyKWh, temperatureC, humidityPercent, occupants, nextMonthKWh
+       
         [90, 55, 28, 75, 3, 94], [120, 80, 29, 78, 4, 128], [150, 95, 30, 80, 4, 155],
         [180, 110, 31, 82, 5, 186], [210, 130, 31, 80, 5, 212], [75, 45, 27, 72, 2, 74],
         [240, 150, 32, 84, 6, 245], [300, 190, 32, 85, 6, 297], [60, 35, 26, 70, 2, 58],
@@ -56,7 +56,7 @@ public final class EnergyPredictionService {
         [160, 95, 29, 77, 4, 160]
     ]
 
-    /// Ridge-regularised least squares weights: [intercept, 5 feature weights]
+
     private lazy var regressionWeights: [Double] = Self.trainRegression(rows: Self.trainingRows)
 
     private static func trainRegression(rows: [[Double]]) -> [Double] {
@@ -71,9 +71,9 @@ public final class EnergyPredictionService {
                 for j in 0..<n { xtx[i][j] += x[i] * x[j] }
             }
         }
-        for i in 1..<n { xtx[i][i] += 0.01 }   // small ridge term for stability
+        for i in 1..<n { xtx[i][i] += 0.01 }   
 
-        // Gauss-Jordan elimination with partial pivoting
+        
         var a = xtx
         var b = xty
         for col in 0..<n {
@@ -138,7 +138,7 @@ public final class EnergyPredictionService {
     ) -> EnergyPrediction? {
         guard !bills.isEmpty else { return nil }
 
-        let sorted = bills.sorted { $0.scannedDate > $1.scannedDate }
+        let sorted = bills.sorted { $0.actualBillingDate > $1.actualBillingDate }
         guard let latest = sorted.first else { return nil }
 
         let historicalAvg = bills.map(\.totalKWh).reduce(0, +) / Double(bills.count)

@@ -58,27 +58,50 @@ public struct ReviewBillView: View {
     @State private var editOutstanding: String = ""
     @State private var editTotalPayable: String = ""
 
-    public init(extractedBill: ExtractedBillData = .sample) {
-        _provider = State(initialValue: extractedBill.provider)
-        _accountNumber = State(initialValue: extractedBill.accountNumber)
-        _tariffCategory = State(initialValue: extractedBill.tariffCategory ?? "")
-        _customerName = State(initialValue: extractedBill.customerName ?? "")
-        _readingDate = State(initialValue: extractedBill.readingDate ?? "")
-        _billingPeriod = State(initialValue: extractedBill.billingPeriod)
-        _dueDate = State(initialValue: extractedBill.dueDate ?? "")
-        _previousReading = State(initialValue: extractedBill.previousReading)
-        _currentReading = State(initialValue: extractedBill.currentReading)
-        _consumption = State(initialValue: extractedBill.consumptionKwh)
-        _currentCharge = State(initialValue: extractedBill.currentCharge ?? "")
-        _taxesAndLevies = State(initialValue: extractedBill.taxesAndLevies ?? "")
-        _monthlyBill = State(initialValue: extractedBill.monthlyBill ?? "")
-        _previousBalance = State(initialValue: extractedBill.previousBalance ?? "")
-        _payments = State(initialValue: extractedBill.payments ?? "")
-        _outstandingBalance = State(initialValue: extractedBill.outstandingBalance ?? "")
-        _totalAmountPayable = State(initialValue: extractedBill.totalAmountPayable)
-        _rawText = State(initialValue: extractedBill.rawText)
-        _validationMessages = State(initialValue: extractedBill.validationMessages)
-        _isMathConsistent = State(initialValue: extractedBill.isMathConsistent)
+    public init(extractedBill: ExtractedBillData? = nil) {
+        if let extractedBill {
+            _provider = State(initialValue: extractedBill.provider)
+            _accountNumber = State(initialValue: extractedBill.accountNumber)
+            _tariffCategory = State(initialValue: extractedBill.tariffCategory ?? "")
+            _customerName = State(initialValue: extractedBill.customerName ?? "")
+            _readingDate = State(initialValue: extractedBill.readingDate ?? "")
+            _billingPeriod = State(initialValue: extractedBill.billingPeriod)
+            _dueDate = State(initialValue: extractedBill.dueDate ?? "")
+            _previousReading = State(initialValue: extractedBill.previousReading)
+            _currentReading = State(initialValue: extractedBill.currentReading)
+            _consumption = State(initialValue: extractedBill.consumptionKwh)
+            _currentCharge = State(initialValue: extractedBill.currentCharge ?? "")
+            _taxesAndLevies = State(initialValue: extractedBill.taxesAndLevies ?? "")
+            _monthlyBill = State(initialValue: extractedBill.monthlyBill ?? "")
+            _previousBalance = State(initialValue: extractedBill.previousBalance ?? "")
+            _payments = State(initialValue: extractedBill.payments ?? "")
+            _outstandingBalance = State(initialValue: extractedBill.outstandingBalance ?? "")
+            _totalAmountPayable = State(initialValue: extractedBill.totalAmountPayable)
+            _rawText = State(initialValue: extractedBill.rawText)
+            _validationMessages = State(initialValue: extractedBill.validationMessages)
+            _isMathConsistent = State(initialValue: extractedBill.isMathConsistent)
+        } else {
+            _provider = State(initialValue: "CEB")
+            _accountNumber = State(initialValue: "")
+            _tariffCategory = State(initialValue: "")
+            _customerName = State(initialValue: "")
+            _readingDate = State(initialValue: "")
+            _billingPeriod = State(initialValue: "")
+            _dueDate = State(initialValue: "")
+            _previousReading = State(initialValue: "")
+            _currentReading = State(initialValue: "")
+            _consumption = State(initialValue: "")
+            _currentCharge = State(initialValue: "")
+            _taxesAndLevies = State(initialValue: "")
+            _monthlyBill = State(initialValue: "")
+            _previousBalance = State(initialValue: "")
+            _payments = State(initialValue: "")
+            _outstandingBalance = State(initialValue: "")
+            _totalAmountPayable = State(initialValue: "")
+            _rawText = State(initialValue: "")
+            _validationMessages = State(initialValue: [])
+            _isMathConsistent = State(initialValue: true)
+        }
     }
 
     private func syncFromState(_ data: ExtractedBillData) {
@@ -460,7 +483,7 @@ public struct ReviewBillView: View {
         }
         .background(Color.white.ignoresSafeArea())
         .onAppear {
-            if !navState.currentBillDraft.rawExtractedText.isEmpty {
+            if !navState.currentBillDraft.rawExtractedText.isEmpty || !navState.currentBillDraft.accountNumber.isEmpty || !navState.currentBillDraft.totalKWh.isEmpty {
                 let d = navState.currentBillDraft
                 provider = d.providerName.isEmpty ? "CEB" : d.providerName
                 accountNumber = d.accountNumber
@@ -654,103 +677,57 @@ public struct ReviewBillView: View {
         saveError = ""
 
         do {
-            let parsedPeriod = parsePeriodDates(from: billingPeriod, readingDate: readingDate)
-            let prevNum = Int(ExtractedBillData.cleanNumericString(from: previousReading))
-            let currNum = Int(ExtractedBillData.cleanNumericString(from: currentReading))
-            let consNum = Double(ExtractedBillData.cleanNumericString(from: consumption)) ?? 0.0
-            let chargeNum = Double(ExtractedBillData.cleanNumericString(from: currentCharge))
-            let taxNum = Double(ExtractedBillData.cleanNumericString(from: taxesAndLevies))
-            let bfNum = Double(ExtractedBillData.cleanNumericString(from: previousBalance))
-            let pmtNum = Double(ExtractedBillData.cleanNumericString(from: payments))
-            let outNum = Double(ExtractedBillData.cleanNumericString(from: outstandingBalance))
-            let totalNum = Double(ExtractedBillData.cleanNumericString(from: totalAmountPayable)) ?? 0.0
-
-            let parsedDueDate = parseSimpleDate(dueDate)
-            let parsedReadingDate = parseSimpleDate(readingDate)
-
             // Compress image for local SwiftData storage
             var imgData: Data? = nil
             if let uiImg = navState.selectedBillImage {
                 imgData = uiImg.jpegData(compressionQuality: 0.7)
             }
 
-            if overwriteExisting, let existing = duplicateExistingBill {
-                try SwiftDataBillService.shared.updateBill(
-                    context: modelContext,
-                    bill: existing,
-                    accountNumber: accountNumber,
-                    customerName: customerName,
-                    prevReading: prevNum,
-                    currReading: currNum,
-                    consumptionKwh: consNum,
-                    currentCharges: chargeNum,
-                    taxesAndLevies: taxNum,
-                    outstandingBalance: outNum,
-                    totalAmountPayable: totalNum,
-                    billingPeriodText: billingPeriod,
-                    dueDate: parsedDueDate
-                )
-                if let img = imgData { existing.imageData = img }
-                existing.rawOcrText = rawText
-                try modelContext.save()
-                navState.selectedBillId = existing.id
-            } else {
-                let savedBill = try SwiftDataBillService.shared.saveBill(
-                    context: modelContext,
-                    periodStart: parsedPeriod.0,
-                    periodEnd: parsedPeriod.1,
-                    prevReading: prevNum,
-                    currReading: currNum,
-                    consumptionKwh: consNum,
-                    billAmount: totalNum,
-                    currency: "LKR",
-                    provider: provider.isEmpty ? "CEB" : provider,
-                    accountNumber: accountNumber,
-                    customerName: customerName.isEmpty ? nil : customerName,
-                    customerAddress: nil,
-                    tariffCategory: tariffCategory.isEmpty ? nil : tariffCategory,
-                    billDate: parsedReadingDate,
-                    dueDate: parsedDueDate,
-                    billingPeriodText: billingPeriod,
-                    currentCharges: chargeNum,
-                    fixedCharges: nil,
-                    taxesAndLevies: taxNum,
-                    previousBalance: bfNum,
-                    payments: pmtNum,
-                    outstandingBalance: outNum,
-                    totalAmountPayable: totalNum,
-                    rawOcrText: rawText,
-                    imageData: imgData,
-                    isVerified: true
-                )
-                navState.selectedBillId = savedBill.id
+            // Populate draftToPersist directly from current confirmed user values
+            var draftToPersist = navState.currentBillDraft
+            draftToPersist.accountNumber = accountNumber
+            draftToPersist.customerName = customerName
+            draftToPersist.providerName = provider.isEmpty ? "CEB" : provider
+            draftToPersist.billingMonth = billingPeriod
+            draftToPersist.readingDate = readingDate
+            draftToPersist.dueDate = dueDate
+            draftToPersist.previousReading = previousReading.replacingOccurrences(of: " kWh", with: "").trimmingCharacters(in: .whitespaces)
+            draftToPersist.currentReading = currentReading.replacingOccurrences(of: " kWh", with: "").trimmingCharacters(in: .whitespaces)
+            draftToPersist.totalKWh = consumption.replacingOccurrences(of: " kWh", with: "").trimmingCharacters(in: .whitespaces)
+            draftToPersist.electricityCharge = currentCharge.replacingOccurrences(of: "Rs. ", with: "").replacingOccurrences(of: "$", with: "").trimmingCharacters(in: .whitespaces)
+            draftToPersist.sscLevy = taxesAndLevies.replacingOccurrences(of: "Rs. ", with: "").replacingOccurrences(of: "$", with: "").trimmingCharacters(in: .whitespaces)
+            draftToPersist.monthlyBill = monthlyBill.replacingOccurrences(of: "Rs. ", with: "").replacingOccurrences(of: "$", with: "").trimmingCharacters(in: .whitespaces)
+            draftToPersist.previousBalance = previousBalance.replacingOccurrences(of: "Rs. ", with: "").replacingOccurrences(of: "$", with: "").trimmingCharacters(in: .whitespaces)
+            draftToPersist.payments = payments.replacingOccurrences(of: "Rs. ", with: "").replacingOccurrences(of: "$", with: "").trimmingCharacters(in: .whitespaces)
+            draftToPersist.outstandingBalance = outstandingBalance.replacingOccurrences(of: "Rs. ", with: "").replacingOccurrences(of: "$", with: "").trimmingCharacters(in: .whitespaces)
+            draftToPersist.totalAmount = totalAmountPayable.replacingOccurrences(of: "Rs. ", with: "").replacingOccurrences(of: "$", with: "").trimmingCharacters(in: .whitespaces)
+            draftToPersist.rawExtractedText = rawText
+
+            let overwriteID = overwriteExisting ? duplicateExistingBill?.id : draftToPersist.existingBillID
+            let savedPDFBill = try SwiftDataBillService.shared.saveReviewedBill(
+                from: draftToPersist,
+                userEmail: navState.email,
+                overwriteDuplicateID: overwriteID,
+                in: modelContext
+            )
+
+            // Attach compressed image to synchronized ElectricityBill if available
+            if let img = imgData {
+                let savedId = savedPDFBill.id
+                let elecDescriptor = FetchDescriptor<ElectricityBill>(predicate: #Predicate { $0.id == savedId })
+                if let matchedElec = try? modelContext.fetch(elecDescriptor).first {
+                    matchedElec.imageData = img
+                    try? modelContext.save()
+                }
             }
 
-            // Also persist into SavedBill model for full specification persistence
-            var draftToPersist = navState.currentBillDraft
-            if draftToPersist.accountNumber.isEmpty {
-                draftToPersist.accountNumber = accountNumber
-                draftToPersist.customerName = customerName
-                draftToPersist.providerName = provider
-                draftToPersist.billingMonth = billingPeriod
-                draftToPersist.readingDate = readingDate
-                draftToPersist.dueDate = dueDate
-                draftToPersist.previousReading = previousReading.replacingOccurrences(of: " kWh", with: "")
-                draftToPersist.currentReading = currentReading.replacingOccurrences(of: " kWh", with: "")
-                draftToPersist.totalKWh = consumption.replacingOccurrences(of: " kWh", with: "")
-                draftToPersist.electricityCharge = currentCharge.replacingOccurrences(of: "Rs. ", with: "").replacingOccurrences(of: "$", with: "")
-                draftToPersist.sscLevy = taxesAndLevies.replacingOccurrences(of: "Rs. ", with: "").replacingOccurrences(of: "$", with: "")
-                draftToPersist.monthlyBill = monthlyBill.replacingOccurrences(of: "Rs. ", with: "").replacingOccurrences(of: "$", with: "")
-                draftToPersist.previousBalance = previousBalance.replacingOccurrences(of: "Rs. ", with: "").replacingOccurrences(of: "$", with: "")
-                draftToPersist.payments = payments.replacingOccurrences(of: "Rs. ", with: "").replacingOccurrences(of: "$", with: "")
-                draftToPersist.outstandingBalance = outstandingBalance.replacingOccurrences(of: "Rs. ", with: "").replacingOccurrences(of: "$", with: "")
-                draftToPersist.totalAmount = totalAmountPayable.replacingOccurrences(of: "Rs. ", with: "").replacingOccurrences(of: "$", with: "")
-                draftToPersist.rawExtractedText = rawText
+            navState.selectedBillId = savedPDFBill.id
+
+            // Sync with Firebase
+            Task {
+                try? await FirebaseRESTService.shared.syncBill(bill: savedPDFBill)
             }
-            let savedPDFBill = try? SwiftDataBillService.shared.saveReviewedBill(from: draftToPersist, userEmail: navState.email, in: modelContext)
-            if let saved = savedPDFBill {
-                Task { try? await FirebaseRESTService.shared.syncBill(bill: saved) }
-            }
+
             NotificationManager.shared.notifyBillSaved(
                 billingMonth: draftToPersist.billingMonth.isEmpty ? billingPeriod : draftToPersist.billingMonth,
                 totalKWh: draftToPersist.totalKWh.isEmpty ? consumption.replacingOccurrences(of: " kWh", with: "") : draftToPersist.totalKWh
