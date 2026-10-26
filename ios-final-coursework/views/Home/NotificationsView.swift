@@ -6,11 +6,39 @@
 //
 
 import SwiftUI
+import SwiftData
 
 public struct NotificationsView: View {
     @EnvironmentObject var navState: AppNavigationState
+    @Query(sort: \SavedBill.scannedDate, order: .reverse) private var savedBills: [SavedBill]
+    @Query(sort: \Appliance.name) private var savedAppliances: [Appliance]
+    @Query private var savedUsers: [User]
+    @ObservedObject private var weatherService = WeatherService.shared
     
     public init() {}
+    
+    private var prediction: EnergyPrediction? {
+        EnergyPredictionService.shared.predictNextMonth(
+            bills: savedBills,
+            appliances: savedAppliances,
+            user: savedUsers.first,
+            temperatureC: weatherService.currentTemperature,
+            humidityPercent: weatherService.currentHumidity
+        )
+    }
+    
+    private var coolingMessage: String {
+        let temp = weatherService.tomorrowMaxTemperature ?? weatherService.currentTemperature
+        let label = weatherService.tomorrowMaxTemperature != nil ? "Tomorrow" : "Today"
+        return "\(label): \(Int(round(temp)))°C. Your cooling\nappliances may use more energy."
+    }
+    
+    private var predictionMessage: String {
+        guard let p = prediction else {
+            return "Save an electricity bill to\nsee your next month forecast."
+        }
+        return "Next month’s estimated bill is \(p.currency)\n\(String(format: "%.0f", p.predictedCost)). Your forecast is now \(String(format: "%.0f", p.predictedKWh)) kWh."
+    }
     
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -59,8 +87,8 @@ public struct NotificationsView: View {
                             icon: "sun.haze",
                             iconColor: Color(red: 0.90, green: 0.50, blue: 0.15),
                             title: "High Cooling Demand",
-                            message: "Tomorrow: 33°C. Your cooling\nappliances may use more energy.",
-                            meta: "● Unread · Today, 9:00 AM",
+                            message: coolingMessage,
+                            meta: "● Live weather · \(navState.town.isEmpty ? "Colombo" : navState.town)",
                             bgColor: EnergyLensTheme.alertYellowBg
                         )
                         
@@ -69,8 +97,8 @@ public struct NotificationsView: View {
                             icon: "chart.line.uptrend.xyaxis",
                             iconColor: Color(red: 0.55, green: 0.35, blue: 0.85),
                             title: "Prediction Update",
-                            message: "Next month’s estimated bill is LKR\n8,520. Your forecast is now 195 kWh.",
-                            meta: "● Unread · Yesterday, 6:30 PM",
+                            message: predictionMessage,
+                            meta: "● Live forecast",
                             bgColor: EnergyLensTheme.purpleCardBg
                         )
                         
@@ -97,6 +125,9 @@ public struct NotificationsView: View {
             }
         }
         .background(Color.white.ignoresSafeArea())
+        .task {
+            await weatherService.fetchWeather(forTown: navState.town)
+        }
     }
     
     @ViewBuilder

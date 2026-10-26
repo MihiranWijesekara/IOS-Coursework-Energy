@@ -10,7 +10,7 @@ import SwiftData
 
 public struct WhyThisPredictionView: View {
     @EnvironmentObject var navState: AppNavigationState
-    @StateObject private var weatherService = WeatherService()
+    @ObservedObject private var weatherService = WeatherService.shared
     @Query(sort: \SavedBill.scannedDate, order: .reverse) private var savedBills: [SavedBill]
     @Query(sort: \Appliance.name) private var savedAppliances: [Appliance]
     @Query private var savedUsers: [User]
@@ -127,7 +127,7 @@ public struct WhyThisPredictionView: View {
         }
         .background(Color.white.ignoresSafeArea())
         .task {
-            _ = try? await weatherService.fetchWeather()
+            await weatherService.fetchWeather(forTown: navState.town)
         }
     }
     

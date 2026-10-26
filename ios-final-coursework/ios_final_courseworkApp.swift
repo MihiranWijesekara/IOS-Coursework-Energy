@@ -10,6 +10,11 @@ import SwiftData
 
 @main
 struct ios_final_courseworkApp: App {
+    init() {
+        NotificationManager.shared.configure()
+        NotificationManager.shared.requestAuthorization()
+    }
+    
     var body: some Scene {
         WindowGroup {
             ContentView()

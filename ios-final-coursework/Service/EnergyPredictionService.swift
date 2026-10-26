@@ -32,10 +32,13 @@ public final class EnergyPredictionService {
     // MARK: - Core ML model
 
     private lazy var coreMLModel: MLModel? = {
-        guard let url = Bundle.main.url(forResource: "EnergyBillPredictor", withExtension: "mlmodelc") else {
-            return nil
+        for name in ["EnergyBillPredictor", "EnergyBillPredictor 1", "EnergyBillPredictor_1"] {
+            if let url = Bundle.main.url(forResource: name, withExtension: "mlmodelc"),
+               let model = try? MLModel(contentsOf: url) {
+                return model
+            }
         }
-        return try? MLModel(contentsOf: url)
+        return nil
     }()
 
     // MARK: - Fallback regression (trained on the same 25-row dataset as the CSV)
@@ -98,21 +101,27 @@ public final class EnergyPredictionService {
         return y
     }
 
+    private static let featureNames = ["historicalAvgKWh", "applianceMonthlyKWh", "temperatureC", "humidityPercent", "occupants"]
+
     private func coreMLPredict(_ f: [Double]) -> Double? {
         guard let model = coreMLModel else { return nil }
-        let input: [String: MLFeatureValue] = [
-            "historicalAvgKWh": MLFeatureValue(double: f[0]),
-            "applianceMonthlyKWh": MLFeatureValue(double: f[1]),
-            "temperatureC": MLFeatureValue(double: f[2]),
-            "humidityPercent": MLFeatureValue(double: f[3]),
-            "occupants": MLFeatureValue(double: f[4])
-        ]
+        let inputDescriptions = model.modelDescription.inputDescriptionsByName
+        var input: [String: MLFeatureValue] = [:]
+        for (i, name) in Self.featureNames.enumerated() {
+            // Create ML may export numeric columns as Int64 or Double; match the model's declared type.
+            if inputDescriptions[name]?.type == .int64 {
+                input[name] = MLFeatureValue(int64: Int64(f[i].rounded()))
+            } else {
+                input[name] = MLFeatureValue(double: f[i])
+            }
+        }
         guard let provider = try? MLDictionaryFeatureProvider(dictionary: input),
               let output = try? model.prediction(from: provider),
-              let value = output.featureValue(for: "nextMonthKWh")?.doubleValue,
-              value.isFinite, value > 0 else {
+              let outValue = output.featureValue(for: "nextMonthKWh") else {
             return nil
         }
+        let value = outValue.type == .int64 ? Double(outValue.int64Value) : outValue.doubleValue
+        guard value.isFinite, value > 0 else { return nil }
         return value
     }
 

@@ -35,7 +35,7 @@ public struct ProfileView: View {
                                 .fill(EnergyLensTheme.logoSkyBlue)
                                 .frame(width: 52, height: 52)
                             
-                            Text("AM")
+                            Text(navState.initials)
                                 .font(.system(size: 18, weight: .bold))
                                 .foregroundColor(Color(red: 0.08, green: 0.22, blue: 0.35))
                         }
@@ -61,7 +61,7 @@ public struct ProfileView: View {
                     VStack(spacing: 0) {
                         menuRow(icon: "person", iconBg: Color(red: 0.25, green: 0.60, blue: 0.85), title: "Profile", subtitle: nil, rightValue: nil, showDivider: true) {}
                         
-                        menuRow(icon: "location.circle", iconBg: Color(red: 0.50, green: 0.40, blue: 0.80), title: "Location & Weather", subtitle: "Colombo", rightValue: nil, showDivider: true) {
+                        menuRow(icon: "location.circle", iconBg: Color(red: 0.50, green: 0.40, blue: 0.80), title: "Location & Weather", subtitle: navState.town.isEmpty ? "Colombo" : navState.town, rightValue: nil, showDivider: true) {
                             navState.navigate(to: .weatherDetails)
                         }
                         

@@ -12,6 +12,10 @@ public struct HomeDashboardView: View {
     @EnvironmentObject var navState: AppNavigationState
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \ElectricityBill.periodEnd, order: .reverse) private var savedBills: [ElectricityBill]
+    @Query(sort: \SavedBill.scannedDate, order: .reverse) private var pdfSavedBills: [SavedBill]
+    @Query(sort: \Appliance.name) private var savedAppliances: [Appliance]
+    @Query private var savedUsers: [User]
+    @ObservedObject private var sharedWeather = WeatherService.shared
     
     // Live Weather State
     @State private var weatherTemp: Double? = 33.0
@@ -21,8 +25,45 @@ public struct HomeDashboardView: View {
     @State private var isLoadingWeather: Bool = false
     @State private var weatherFetchFailed: Bool = false
     
+    private var hasAnyBill: Bool {
+        !pdfSavedBills.isEmpty || !savedBills.isEmpty
+    }
+    
+    private var prediction: EnergyPrediction? {
+        EnergyPredictionService.shared.predictNextMonth(
+            bills: pdfSavedBills,
+            appliances: savedAppliances,
+            user: savedUsers.first,
+            temperatureC: sharedWeather.currentTemperature,
+            humidityPercent: sharedWeather.currentHumidity
+        )
+    }
+    
+    private static func currencySymbol(_ raw: String) -> String {
+        (raw.uppercased() == "USD" || raw == "$") ? "$" : "Rs."
+    }
+    
+    private static func billCost(_ bill: SavedBill) -> Double {
+        bill.monthlyBill > 0 ? bill.monthlyBill : bill.totalAmount
+    }
+    
     // Computed Latest Bill values for Home Dashboard
     private var latestBillData: (headerMonth: String, kwh: Double, amountText: String, comparisonText: String) {
+        if let latest = pdfSavedBills.first {
+            let header = "THIS MONTH · \(latest.billingMonth.uppercased())"
+            let symbol = Self.currencySymbol(latest.currency)
+            let amount = "\(symbol) \(String(format: "%.2f", Self.billCost(latest)))"
+            var comparison = "First saved bill"
+            if pdfSavedBills.count > 1 {
+                let previous = pdfSavedBills[1]
+                if previous.totalKWh > 0 {
+                    let pct = (latest.totalKWh - previous.totalKWh) / previous.totalKWh * 100
+                    let arrow = pct >= 0 ? "↑" : "↓"
+                    comparison = "\(arrow) \(String(format: "%.1f", abs(pct)))% vs \(previous.billingMonth) · \(String(format: "%.0f", previous.totalKWh)) kWh"
+                }
+            }
+            return (header, latest.totalKWh, amount, comparison)
+        }
         if let latest = savedBills.first {
             let header = "THIS MONTH · \(SwiftDataBillService.formatMonthYear(date: latest.periodEnd))"
             let previous = savedBills.count > 1 ? savedBills[1] : nil
@@ -30,7 +71,7 @@ public struct HomeDashboardView: View {
             let amount = String(format: "LKR %.2f", latest.billAmount)
             return (header, latest.consumptionKwh, amount, comp.text)
         }
-        return ("THIS MONTH · AUG 2025", 180, "LKR 7,850", "↑ 12.5% vs July · 160 kWh")
+        return ("THIS MONTH", 0, "No bill yet", "Import a bill to see your usage")
     }
 
     private var greeting: String {
@@ -70,7 +111,7 @@ public struct HomeDashboardView: View {
                                     .fill(Color(red: 0.90, green: 0.94, blue: 0.98))
                                     .frame(width: 34, height: 34)
                                 
-                                Text("AM")
+                                Text(navState.initials)
                                     .font(.system(size: 13, weight: .bold))
                                     .foregroundColor(EnergyLensTheme.textPrimary)
                             }
@@ -102,7 +143,7 @@ public struct HomeDashboardView: View {
                     
                     // Main Highlight Card: THIS MONTH
                     Button(action: {
-                        if savedBills.isEmpty {
+                        if !hasAnyBill {
                             navState.navigate(to: .billHistoryEmpty)
                         } else {
                             navState.navigate(to: .billAnalysisResult)
@@ -117,7 +158,7 @@ public struct HomeDashboardView: View {
                                 
                                 Spacer()
                                 
-                                Text(savedBills.isEmpty ? "Sample bill" : "Imported bill")
+                                Text(hasAnyBill ? "Imported bill" : "No bill")
                                     .font(.system(size: 12, weight: .medium))
                                     .foregroundColor(Color(red: 0.65, green: 0.88, blue: 0.76))
                             }
@@ -159,11 +200,11 @@ public struct HomeDashboardView: View {
                                 .frame(width: 24)
                             
                             VStack(alignment: .leading, spacing: 3) {
-                                Text("Next month · 190 kWh")
+                                Text(prediction.map { "Next month · \(String(format: "%.0f", $0.predictedKWh)) kWh" } ?? "Next month · no forecast yet")
                                     .font(.system(size: 15, weight: .bold))
                                     .foregroundColor(EnergyLensTheme.textPrimary)
                                 
-                                Text("Earlier estimate · refreshed to 195 kWh")
+                                Text(prediction.map { "Estimated \($0.currency) \(String(format: "%.0f", $0.predictedCost)) · \($0.usedCoreML ? "Core ML" : "regression") forecast" } ?? "Import a bill to generate a forecast")
                                     .font(.system(size: 12, weight: .regular))
                                     .foregroundColor(EnergyLensTheme.textSecondary)
                             }

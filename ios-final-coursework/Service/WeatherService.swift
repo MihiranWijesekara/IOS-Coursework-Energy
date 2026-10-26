@@ -24,6 +24,8 @@ public final class WeatherService: ObservableObject {
         ("8 PM", 28, "moon.stars.fill")
     ]
     @Published public var acLoadImpactPercent: Int = 18
+    /// Tomorrow's forecast max temperature (nil until a forecast has been fetched)
+    @Published public var tomorrowMaxTemperature: Double? = nil
     @Published public var isLoading: Bool = false
     @Published public var lastError: String? = nil
     
@@ -31,7 +33,7 @@ public final class WeatherService: ObservableObject {
     public let defaultLatitude: Double = 6.9271
     public let defaultLongitude: Double = 79.8612
     
-    public init() {
+    private init() {
         calculateAcImpact()
     }
     
@@ -101,6 +103,10 @@ public final class WeatherService: ObservableObject {
                 calculateAcImpact()
             }
             
+            if let maxes = decoded.daily?.temperature2mMax, maxes.count > 1 {
+                self.tomorrowMaxTemperature = maxes[1]
+            }
+            
             // Update hourly forecast
             if let hourly = decoded.hourly {
                 var items: [(time: String, temp: Int, icon: String)] = []
@@ -147,6 +153,19 @@ public final class WeatherService: ObservableObject {
     @discardableResult
     public func fetchWeather() async throws -> OpenMeteoResponse {
         return try await fetchWeather(latitude: defaultLatitude, longitude: defaultLongitude)
+    }
+    
+    /// Geocodes the user's town and updates the shared live weather values.
+    /// Falls back to Colombo (6.9271, 79.8612) when the town is empty or geocoding/offline fails.
+    public func fetchWeather(forTown town: String) async {
+        var lat = defaultLatitude
+        var lon = defaultLongitude
+        let cleaned = town.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleaned.isEmpty, let coords = try? await fetchCoordinates(for: cleaned) {
+            lat = coords.lat
+            lon = coords.lon
+        }
+        _ = try? await fetchWeather(latitude: lat, longitude: lon)
     }
     
     /// 3. Helper to translate WMO weather codes into conditions, SF Symbols, and cooling demand advice

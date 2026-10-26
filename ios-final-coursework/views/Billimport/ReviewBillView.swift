@@ -748,6 +748,10 @@ public struct ReviewBillView: View {
                 draftToPersist.rawExtractedText = rawText
             }
             try? SwiftDataBillService.shared.saveReviewedBill(from: draftToPersist, userEmail: navState.email, in: modelContext)
+            NotificationManager.shared.notifyBillSaved(
+                billingMonth: draftToPersist.billingMonth.isEmpty ? billingPeriod : draftToPersist.billingMonth,
+                totalKWh: draftToPersist.totalKWh.isEmpty ? consumption.replacingOccurrences(of: " kWh", with: "") : draftToPersist.totalKWh
+            )
 
             // Clear import screens from navigationStack so pressing Back returns cleanly to .home or .billHistory
             navState.navigationStack.removeAll { $0 == .selectBillImage || $0 == .scanningBill || $0 == .reviewBill }

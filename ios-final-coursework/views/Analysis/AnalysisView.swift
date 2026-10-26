@@ -6,11 +6,40 @@
 //
 
 import SwiftUI
+import SwiftData
 
 public struct AnalysisView: View {
     @EnvironmentObject var navState: AppNavigationState
+    @Query(sort: \SavedBill.scannedDate, order: .reverse) private var savedBills: [SavedBill]
+    @Query(sort: \Appliance.name) private var savedAppliances: [Appliance]
+    @Query private var savedUsers: [User]
+    @ObservedObject private var weatherService = WeatherService.shared
     
     public init() {}
+    
+    private var prediction: EnergyPrediction? {
+        EnergyPredictionService.shared.predictNextMonth(
+            bills: savedBills,
+            appliances: savedAppliances,
+            user: savedUsers.first,
+            temperatureC: weatherService.currentTemperature,
+            humidityPercent: weatherService.currentHumidity
+        )
+    }
+    
+    private var forecastSubtitle: String {
+        if let p = prediction {
+            return "Updated forecast · \(String(format: "%.0f", p.predictedKWh)) kWh"
+        }
+        return "Import a bill to see your forecast"
+    }
+    
+    private var footnoteText: String {
+        if let latest = savedBills.first {
+            return "\(latest.billingMonth) bill is the basis for your current analysis.\nEstimates are not live meter readings."
+        }
+        return "Import a bill to start your analysis.\nEstimates are not live meter readings."
+    }
     
     public var body: some View {
         VStack(spacing: 0) {
@@ -85,7 +114,7 @@ public struct AnalysisView: View {
                             icon: "chart.line.uptrend.xyaxis",
                             iconBg: EnergyLensTheme.iconTealBg,
                             title: "Next Month Prediction",
-                            subtitle: "Updated forecast · 195 kWh",
+                            subtitle: forecastSubtitle,
                             showDivider: false,
                             isHighlighted: true
                         ) {
@@ -136,7 +165,7 @@ public struct AnalysisView: View {
                     )
                     
                     // Footnote
-                    Text("August 2025 bill is the basis for your current analysis.\nEstimates are not live meter readings.")
+                    Text(footnoteText)
                         .font(.system(size: 13, weight: .regular))
                         .foregroundColor(EnergyLensTheme.textSecondary)
                         .lineSpacing(2)

@@ -11,7 +11,7 @@ import SwiftData
 public struct NextMonthPredictionView: View {
     @EnvironmentObject var navState: AppNavigationState
     @Environment(\.modelContext) private var modelContext
-    @StateObject private var weatherService = WeatherService()
+    @ObservedObject private var weatherService = WeatherService.shared
     @Query(sort: \SavedBill.scannedDate, order: .reverse) private var pdfSavedBills: [SavedBill]
     @Query(sort: \Appliance.name) private var savedAppliances: [Appliance]
     @Query private var savedUsers: [User]
@@ -224,7 +224,7 @@ public struct NextMonthPredictionView: View {
         }
         .background(Color.white.ignoresSafeArea())
         .task {
-            _ = try? await weatherService.fetchWeather()
+            await weatherService.fetchWeather(forTown: navState.town)
         }
     }
     

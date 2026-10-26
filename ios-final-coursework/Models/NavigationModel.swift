@@ -106,6 +106,14 @@ public final class AppNavigationState: ObservableObject, Observable {
     @Published public var district: String = "Colombo"
     @Published public var town: String = "Colombo"
     
+    /// Initials derived from the user's first and last name (e.g. "AM").
+    public var initials: String {
+        let f = firstName.trimmingCharacters(in: .whitespacesAndNewlines).first.map { String($0) } ?? ""
+        let l = lastName.trimmingCharacters(in: .whitespacesAndNewlines).first.map { String($0) } ?? ""
+        let result = (f + l).uppercased()
+        return result.isEmpty ? "?" : result
+    }
+    
     @Published public var enteredPasscode: String = ""
     @Published public var isAuthenticated: Bool = false
     // Bill Data and Simulator State

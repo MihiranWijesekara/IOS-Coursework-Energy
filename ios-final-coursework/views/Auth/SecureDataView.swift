@@ -67,12 +67,13 @@ public struct SecureDataView: View {
             VStack(spacing: 12) {
                 GradientButton(title: "Sign In with Face ID") {
                     authService.authenticateWithBiometrics { success in
-//                        if success {
+                        if success {
                             navState.isAuthenticated = true
                             navState.navigate(to: .home)
-//                        } else {
-//                            navState.navigate(to: .createPasscode)
-//                        }
+                        } else {
+                            alertMessage = "Face ID authentication failed. Please try again."
+                            showingAlert = true
+                        }
                     }
                 }
 
@@ -84,5 +85,10 @@ public struct SecureDataView: View {
             .padding(.bottom, 32)
         }
         .background(Color.white.ignoresSafeArea())
+        .alert("Authentication Failed", isPresented: $showingAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(alertMessage)
+        }
     }
 }
