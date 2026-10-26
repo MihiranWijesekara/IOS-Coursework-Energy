@@ -1,0 +1,41 @@
+{
+  "activityEntities" : [
+    "dataSourceTrainingStarted",
+    [
+      {
+        "createdDate" : "2026-10-26T05:35:50Z",
+        "event" : "dataSourceTrainingStarted",
+        "id" : "7976A0B4-09E2-41E3-B9C3-9985A094838A",
+        "subtitle" : "EnergyBillPredictor 1",
+        "title" : "Used By"
+      }
+    ],
+    "dataSourceMetrics",
+    [
+      {
+        "createdDate" : "2026-10-26T05:35:50Z",
+        "event" : "dataSourceMetrics",
+        "id" : "E06E6821-D32E-420D-8B68-E3C02A85865F",
+        "subtitle" : "22 Items",
+        "title" : "Data Summary"
+      }
+    ]
+  ],
+  "createdDate" : "2026-10-26T05:34:52Z",
+  "dataPathRelativeToProjectURL" : "../../../Downloads/energy_training_data.csv%20-%20Sheet1.csv/",
+  "dataResult" : {
+    "createdDate" : "2026-10-26T05:34:52Z",
+    "dataSourceID" : "C6F4190E-0601-4994-9442-4A628C112ED8",
+    "dataURL" : "file:///Users/student5/Downloads/energy_training_data.csv%20-%20Sheet1.csv"
+  },
+  "dataURL" : "file:///Users/student5/Downloads/energy_training_data.csv%20-%20Sheet1.csv",
+  "experimentIDs" : [
+    "CDBAE5C5-C07E-4347-BFAB-0EDB4710FCC6"
+  ],
+  "id" : "C6F4190E-0601-4994-9442-4A628C112ED8",
+  "modifiedDate" : "2026-10-26T05:35:50Z",
+  "pathType" : 0,
+  "preferredFilename" : "energy_training_data.csv - Sheet1.csv",
+  "title" : "energy_training_data.csv - Sheet1.csv",
+  "version" : "1.0"
+}

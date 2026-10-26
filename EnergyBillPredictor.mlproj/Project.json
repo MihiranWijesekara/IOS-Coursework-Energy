@@ -1,0 +1,29 @@
+{
+  "activityEntities" : [
+    "projectCreated",
+    [
+      {
+        "createdDate" : "2026-10-26T05:34:27Z",
+        "event" : "projectCreated",
+        "id" : "FE4C5286-C7B2-482F-A2C8-3D7905E194C2",
+        "subtitle" : "EnergyBillPredictor",
+        "title" : "Project Created"
+      }
+    ]
+  ],
+  "authorName" : "student5",
+  "createdDate" : "2026-10-26T05:34:27Z",
+  "description" : "",
+  "id" : "CB06AD01-5CFC-42A4-BFB9-9537ABA0048D",
+  "license" : "",
+  "location" : "",
+  "modifiedDate" : "2026-10-26T05:34:27Z",
+  "projectName" : "EnergyBillPredictor",
+  "settingsEntity" : {
+    "snapshotOnExtendTraining" : true,
+    "snapshotOnResumeTraining" : false
+  },
+  "taskType" : "generalRegresor",
+  "title" : "Tabular Regression",
+  "version" : "1.1"
+}
