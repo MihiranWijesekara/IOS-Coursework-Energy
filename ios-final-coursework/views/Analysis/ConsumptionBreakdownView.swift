@@ -78,7 +78,8 @@ public struct ConsumptionBreakdownView: View {
                 VStack(spacing: 16) {
                     Image(systemName: "chart.pie.fill")
                         .font(.system(size: 40))
-                        .foregroundColor(EnergyLensTheme.primaryGreen)
+//                        .foregroundColor(EnergyLensTheme.primaryGreen)
+                        .foregroundColor(Color(red: 0.12, green: 0.50, blue: 0.32))
                         .padding(.top, 16)
                     
                     Text("No Bills Imported Yet")

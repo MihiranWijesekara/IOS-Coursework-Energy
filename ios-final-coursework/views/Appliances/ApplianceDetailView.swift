@@ -336,7 +336,7 @@ public struct ApplianceDetailView: View {
                     TextField("Wattage (e.g. 1200)", text: $editWattageText)
                         .keyboardType(.numberPad)
                         .padding(14)
-                        .background(EnergyLensTheme.fieldBg)
+                        .background(Color(red: 0.96, green: 0.97, blue: 0.98)) // Standard fallback background
                         .cornerRadius(12)
                         .overlay(RoundedRectangle(cornerRadius: 12).stroke(EnergyLensTheme.fieldBorder, lineWidth: 1))
                 }
