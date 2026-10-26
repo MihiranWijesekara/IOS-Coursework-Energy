@@ -41,10 +41,7 @@ public final class ApplianceCalibrationService {
     public static let shared = ApplianceCalibrationService()
     
     private init() {}
-    
-    /// Calibrates saved appliances against an electricity bill's total kWh.
-    /// If actual bill kWh is provided (e.g. 78 kWh or 180 kWh), the raw appliance estimates
-    /// are proportionally scaled to match the true meter reading.
+
     public func calibrateAppliances(
         appliances: [Appliance],
         targetBillKwh: Double?
@@ -113,7 +110,7 @@ public final class ApplianceCalibrationService {
         ]
     }
     
-    /// Calibrate a single appliance against the current household profile and bill
+
     public func calibrateSingleAppliance(
         appliance: Appliance,
         allAppliances: [Appliance],
@@ -139,16 +136,14 @@ public final class ApplianceCalibrationService {
         )
     }
     
-    /// Estimated tariff rate per kWh in LKR.
-    /// Uses actual imported bill rate (e.g. 7850 / 180 = ~43.6 LKR/kWh) or standard CEB domestic rate (~43.75 LKR/kWh).
+   
     public func effectiveTariffRate(bill: ElectricityBill?) -> Double {
         if let b = bill, b.consumptionKwh > 0, b.billAmount > 0 {
             return b.billAmount / b.consumptionKwh
         }
-        return 43.75 // Standard CEB domestic tier average rate
+        return 43.75
     }
     
-    /// Estimate monthly expenditure in LKR for an appliance's calibrated kWh
     public func estimateMonthlyCost(calibratedKwh: Double, bill: ElectricityBill?) -> Double {
         return calibratedKwh * effectiveTariffRate(bill: bill)
     }
@@ -168,13 +163,13 @@ public final class ApplianceCalibrationService {
     
     public func colorForIndex(_ index: Int) -> Color {
         let palette: [Color] = [
-            Color(red: 0.12, green: 0.55, blue: 0.32), // Emerald Green
-            Color(red: 0.95, green: 0.60, blue: 0.10), // Warm Orange
-            Color(red: 0.55, green: 0.35, blue: 0.85), // Purple
-            Color(red: 0.90, green: 0.30, blue: 0.55), // Rose
-            Color(red: 0.25, green: 0.50, blue: 0.90), // Ocean Blue
-            Color(red: 0.95, green: 0.45, blue: 0.20), // Amber
-            Color(red: 0.15, green: 0.65, blue: 0.60)  // Teal
+            Color(red: 0.12, green: 0.55, blue: 0.32), 
+            Color(red: 0.95, green: 0.60, blue: 0.10), 
+            Color(red: 0.55, green: 0.35, blue: 0.85), 
+            Color(red: 0.90, green: 0.30, blue: 0.55), 
+            Color(red: 0.25, green: 0.50, blue: 0.90), 
+            Color(red: 0.95, green: 0.45, blue: 0.20), 
+            Color(red: 0.15, green: 0.65, blue: 0.60) 
         ]
         return palette[index % palette.count]
     }

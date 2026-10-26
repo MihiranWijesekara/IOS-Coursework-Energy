@@ -20,6 +20,7 @@ public final class User {
     public var district: String?
     public var town: String?
     public var passwordHash: String
+    public var occupants: Int = 3
     
 
     @Relationship(deleteRule: .cascade, inverse: \Appliance.user)
@@ -46,6 +47,7 @@ public final class User {
         province: String? = nil,
         district: String? = nil,
         town: String? = nil,
+        occupants: Int = 3,
         passwordHash: String
     ) {
         self.id = id
@@ -56,6 +58,7 @@ public final class User {
         self.province = province
         self.district = district
         self.town = town
+        self.occupants = occupants
         self.passwordHash = passwordHash
     }
 }

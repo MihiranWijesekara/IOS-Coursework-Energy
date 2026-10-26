@@ -105,6 +105,7 @@ public final class AppNavigationState: ObservableObject, Observable {
     @Published public var province: String = "Western"
     @Published public var district: String = "Colombo"
     @Published public var town: String = "Colombo"
+    @Published public var occupants: Int = 3
     
     /// Initials derived from the user's first and last name (e.g. "AM").
     public var initials: String {

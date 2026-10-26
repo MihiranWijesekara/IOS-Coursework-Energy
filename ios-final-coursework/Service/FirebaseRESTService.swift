@@ -79,6 +79,7 @@ public final class FirebaseRESTService {
             "province": Self.string(user.province ?? ""),
             "district": Self.string(user.district ?? ""),
             "town": Self.string(user.town ?? ""),
+            "occupants": Self.integer(user.occupants),
             "updatedAt": Self.timestamp(Date())
         ]
         try await patchDocument(collection: "users", documentID: Self.sanitizedEmail(user.email), fields: fields)

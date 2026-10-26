@@ -23,6 +23,7 @@ public struct WhyThisPredictionView: View {
             bills: sorted,
             appliances: savedAppliances,
             user: savedUsers.first,
+            occupants: savedUsers.first?.occupants ?? navState.occupants,
             temperatureC: weatherService.currentTemperature,
             humidityPercent: weatherService.currentHumidity
         )
@@ -79,10 +80,38 @@ public struct WhyThisPredictionView: View {
                                 value: "\(String(format: "%.0f", p.applianceMonthlyKWh)) kWh/mo",
                                 ratio: ratio(p.applianceMonthlyKWh, of: p),
                                 color: Color(red: 0.20, green: 0.50, blue: 0.70))
+
+                            // Card 4: Household Occupants
+                            influenceRow(
+                                name: "Household occupants · \(p.occupants) \(p.occupants == 1 ? "person" : "people")",
+                                value: "\(p.occupants) people",
+                                ratio: min(1.0, CGFloat(p.occupants) / 10.0),
+                                color: Color(red: 0.50, green: 0.25, blue: 0.70))
+
+                            // Card 5: Effective Tariff Rate
+                            influenceRow(
+                                name: "Effective tariff · \(p.currency) \(String(format: "%.2f", p.effectiveRatePerKWh))/kWh",
+                                value: "\(p.currency) \(String(format: "%.0f", p.predictedCost))",
+                                ratio: CGFloat(min(1.0, max(0.12, p.effectiveRatePerKWh / 60.0))),
+                                color: Color(red: 0.88, green: 0.52, blue: 0.15))
                         }
                         .padding(18)
                         .background(Color(red: 0.90, green: 0.96, blue: 0.98))
                         .cornerRadius(18)
+
+                        if let err = EnergyPredictionService.shared.lastModelError, !p.usedCoreML {
+                            HStack(alignment: .top, spacing: 10) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundColor(.orange)
+                                    .font(.system(size: 14))
+                                Text("Core ML Note: \(err) (using regression fallback)")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(EnergyLensTheme.textSecondary)
+                            }
+                            .padding(12)
+                            .background(Color.orange.opacity(0.12))
+                            .cornerRadius(10)
+                        }
                     } else {
                         Text("Save at least one electricity bill to see what drives your prediction.")
                             .font(.system(size: 14, weight: .regular))
@@ -116,7 +145,7 @@ public struct WhyThisPredictionView: View {
                     .cornerRadius(16)
                     
                     // Bottom Note
-                    Text("Weather, your saved bill history and calibrated appliances are combined by the \((prediction?.usedCoreML ?? false) ? "on-device Core ML model" : "regression model") to estimate next month's usage.")
+                    Text("Weather, your \(prediction?.occupants ?? 3)-person household, saved bill history, and calibrated appliances are combined by the \((prediction?.usedCoreML ?? false) ? "on-device Core ML model" : "regression model") to estimate next month's usage.")
                         .font(.system(size: 14, weight: .regular))
                         .foregroundColor(EnergyLensTheme.textSecondary)
                         .lineSpacing(2)

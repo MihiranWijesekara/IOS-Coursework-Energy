@@ -224,6 +224,8 @@ public struct NextMonthPredictionView: View {
                         factorRow(icon: "doc.text", title: "Historical Bills Analyzed: \(prediction?.billsAnalyzed ?? 0)", showDivider: true)
                         factorRow(icon: "clock.arrow.circlepath", title: "Historical Avg: \(String(format: "%.0f", prediction?.historicalAvgKWh ?? 0)) kWh", showDivider: true)
                         factorRow(icon: "powerplug", title: "Calibrated Appliances: \(String(format: "%.0f", prediction?.applianceMonthlyKWh ?? 0)) kWh/mo (\(savedAppliances.count))", showDivider: true)
+                        factorRow(icon: "person.2", title: "Household Occupants: \(prediction?.occupants ?? 3) people", showDivider: true)
+                        factorRow(icon: "tag", title: "Effective Tariff: \(prediction?.currency ?? "Rs.") \(String(format: "%.2f", prediction?.effectiveRatePerKWh ?? 0))/kWh", showDivider: true)
                         factorRow(icon: "sun.haze", title: "Current Weather Temperature: \(String(format: "%.1f", weatherService.currentTemperature))°C", showDivider: false)
                     }
                     .background(Color.white)

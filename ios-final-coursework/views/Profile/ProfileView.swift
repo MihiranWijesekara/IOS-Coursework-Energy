@@ -27,6 +27,7 @@ public struct ProfileView: View {
     @State private var editLastName = ""
     @State private var editPhone = ""
     @State private var editTown = ""
+    @State private var editOccupants = 3
     
     // Change Passcode form fields
     @State private var newPasscode = ""
@@ -237,6 +238,23 @@ public struct ProfileView: View {
                     sheetInputField(label: "Last Name", text: $editLastName)
                     sheetInputField(label: "Phone Number", text: $editPhone)
                     sheetInputField(label: "Town / City", text: $editTown)
+
+                    // Household Occupants Stepper (1 to 12)
+                    HStack {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Household Occupants (Family Size)")
+                                .font(.system(size: 13, weight: .regular))
+                                .foregroundColor(EnergyLensTheme.textSecondary)
+                            Text("\(editOccupants) \(editOccupants == 1 ? "person" : "people")")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(EnergyLensTheme.textPrimary)
+                        }
+                        Spacer()
+                        Stepper("", value: $editOccupants, in: 1...12)
+                            .labelsHidden()
+                    }
+                    .padding(.vertical, 4)
+                    Divider().background(EnergyLensTheme.fieldBorder)
                 }
                 
                 Spacer()
@@ -363,6 +381,7 @@ public struct ProfileView: View {
         editLastName = navState.lastName
         editPhone = navState.phone
         editTown = navState.town
+        editOccupants = currentUser?.occupants ?? navState.occupants
     }
     
     private func saveProfile() {
@@ -370,12 +389,14 @@ public struct ProfileView: View {
         navState.lastName = editLastName.trimmingCharacters(in: .whitespacesAndNewlines)
         navState.phone = editPhone.trimmingCharacters(in: .whitespacesAndNewlines)
         navState.town = editTown.trimmingCharacters(in: .whitespacesAndNewlines)
+        navState.occupants = editOccupants
         
         if let user = currentUser {
             user.firstName = navState.firstName
             user.lastName = navState.lastName
             user.phone = navState.phone.isEmpty ? nil : navState.phone
             user.town = navState.town.isEmpty ? nil : navState.town
+            user.occupants = editOccupants
             
             try? modelContext.save()
             

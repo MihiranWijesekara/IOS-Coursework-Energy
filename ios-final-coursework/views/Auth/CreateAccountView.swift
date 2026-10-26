@@ -117,6 +117,23 @@ public struct CreateAccountView: View {
                     labeledInputField(label: "Last Name", text: $navState.lastName)
                     labeledInputField(label: "Email", text: $navState.email)
                     labeledInputField(label: "Phone Number", text: $navState.phone)
+
+                    // Household Occupants Stepper (1 to 12)
+                    HStack {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Household Occupants (Family Size)")
+                                .font(.system(size: 13, weight: .regular))
+                                .foregroundColor(EnergyLensTheme.textSecondary)
+                            Text("\(navState.occupants) \(navState.occupants == 1 ? "person" : "people")")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(EnergyLensTheme.textPrimary)
+                        }
+                        Spacer()
+                        Stepper("", value: $navState.occupants, in: 1...12)
+                            .labelsHidden()
+                    }
+                    .padding(.vertical, 2)
+                    Divider().background(EnergyLensTheme.fieldBorder)
                 }
                 .padding(.bottom, 24)
                 
@@ -224,6 +241,7 @@ public struct CreateAccountView: View {
                             province: navState.province.isEmpty ? nil : navState.province,
                             district: navState.district.isEmpty ? nil : navState.district,
                             town: navState.town.isEmpty ? nil : navState.town,
+                            occupants: navState.occupants,
                             password: password
                         )
 
@@ -234,6 +252,7 @@ public struct CreateAccountView: View {
                         navState.province = savedUser.province ?? ""
                         navState.district = savedUser.district ?? ""
                         navState.town = savedUser.town ?? ""
+                        navState.occupants = savedUser.occupants
                         
                         // Remember the registration and the unlock passcode on this device
                         storedPasscode = passcodeInput.isEmpty ? "123456" : passcodeInput

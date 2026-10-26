@@ -10,7 +10,7 @@
 import Foundation
 import CoreML
 
-public struct EnergyPrediction {
+public struct EnergyPrediction: Sendable {
     public let predictedKWh: Double
     public let predictedCost: Double
     public let currency: String            
@@ -23,13 +23,14 @@ public struct EnergyPrediction {
     public let humidityPercent: Double
     public let occupants: Int
     public let coolingLoadImpactPercent: Double
+    public let effectiveRatePerKWh: Double
 }
 
-public final class EnergyPredictionService {
+public final class EnergyPredictionService: @unchecked Sendable {
     public static let shared = EnergyPredictionService()
+    public var lastModelError: String? = nil
+
     private init() {}
-
-
 
     private lazy var coreMLModel: MLModel? = {
         for name in ["EnergyBillPredictor", "EnergyBillPredictor 1", "EnergyBillPredictor_1"] {
@@ -41,10 +42,7 @@ public final class EnergyPredictionService {
         return nil
     }()
 
-
-
     private static let trainingRows: [[Double]] = [
-       
         [90, 55, 28, 75, 3, 94], [120, 80, 29, 78, 4, 128], [150, 95, 30, 80, 4, 155],
         [180, 110, 31, 82, 5, 186], [210, 130, 31, 80, 5, 212], [75, 45, 27, 72, 2, 74],
         [240, 150, 32, 84, 6, 245], [300, 190, 32, 85, 6, 297], [60, 35, 26, 70, 2, 58],
@@ -55,7 +53,6 @@ public final class EnergyPredictionService {
         [320, 200, 34, 88, 7, 322], [130, 75, 28, 74, 3, 127], [190, 115, 30, 80, 5, 191],
         [160, 95, 29, 77, 4, 160]
     ]
-
 
     private lazy var regressionWeights: [Double] = Self.trainRegression(rows: Self.trainingRows)
 
@@ -73,7 +70,6 @@ public final class EnergyPredictionService {
         }
         for i in 1..<n { xtx[i][i] += 0.01 }   
 
-        
         var a = xtx
         var b = xty
         for col in 0..<n {
@@ -104,7 +100,10 @@ public final class EnergyPredictionService {
     private static let featureNames = ["historicalAvgKWh", "applianceMonthlyKWh", "temperatureC", "humidityPercent", "occupants"]
 
     private func coreMLPredict(_ f: [Double]) -> Double? {
-        guard let model = coreMLModel else { return nil }
+        guard let model = coreMLModel else {
+            lastModelError = "Core ML model 'EnergyBillPredictor' is not loaded or bundled."
+            return nil
+        }
         let inputDescriptions = model.modelDescription.inputDescriptionsByName
         var input: [String: MLFeatureValue] = [:]
         for (i, name) in Self.featureNames.enumerated() {
@@ -115,14 +114,57 @@ public final class EnergyPredictionService {
                 input[name] = MLFeatureValue(double: f[i])
             }
         }
-        guard let provider = try? MLDictionaryFeatureProvider(dictionary: input),
-              let output = try? model.prediction(from: provider),
-              let outValue = output.featureValue(for: "nextMonthKWh") else {
+        do {
+            let provider = try MLDictionaryFeatureProvider(dictionary: input)
+            let output = try model.prediction(from: provider)
+            guard let outValue = output.featureValue(for: "nextMonthKWh") else {
+                lastModelError = "Output feature 'nextMonthKWh' missing from model prediction."
+                return nil
+            }
+            let value = outValue.type == .int64 ? Double(outValue.int64Value) : outValue.doubleValue
+            guard value.isFinite, value > 0 else {
+                lastModelError = "Model output was non-finite or non-positive: \(value)"
+                return nil
+            }
+            lastModelError = nil
+            return value
+        } catch {
+            lastModelError = "Core ML prediction error: \(error.localizedDescription)"
             return nil
         }
-        let value = outValue.type == .int64 ? Double(outValue.int64Value) : outValue.doubleValue
-        guard value.isFinite, value > 0 else { return nil }
-        return value
+    }
+
+    /// Sri Lankan CEB domestic tiered tariff estimation (Domestic Purpose D-1/D-2)
+    public static func estimateCEBDomesticCost(kwh: Double) -> Double {
+        let units = max(0.0, kwh)
+        var energyCharge: Double = 0.0
+        var fixedCharge: Double = 0.0
+
+        if units <= 60 {
+            // Low-consumption tier
+            if units <= 30 {
+                energyCharge = units * 8.0
+                fixedCharge = 150.0
+            } else {
+                energyCharge = (30 * 8.0) + ((units - 30) * 20.0)
+                fixedCharge = 300.0
+            }
+        } else {
+            // General domestic tier
+            if units <= 90 {
+                energyCharge = (60 * 16.0) + ((units - 60) * 25.0)
+                fixedCharge = 400.0
+            } else if units <= 180 {
+                energyCharge = (60 * 16.0) + (30 * 25.0) + ((units - 90) * 45.0)
+                fixedCharge = 1000.0
+            } else {
+                energyCharge = (60 * 16.0) + (30 * 25.0) + (90 * 45.0) + ((units - 180) * 65.0)
+                fixedCharge = 1500.0
+            }
+        }
+        let subtotal = energyCharge + fixedCharge
+        let sscLevy = subtotal * 0.025 // 2.5% SSCL
+        return subtotal + sscLevy
     }
 
     // MARK: - Public API
@@ -130,47 +172,75 @@ public final class EnergyPredictionService {
     /// Predicts next month's consumption and cost. Returns nil when there are no saved bills.
     public func predictNextMonth(
         bills: [SavedBill],
-        appliances: [Appliance],
-        user: User?,
-        temperatureC: Double,
-        humidityPercent: Double,
+        appliances: [Appliance] = [],
+        user: User? = nil,
+        temperatureC: Double? = 31.0,
+        humidityPercent: Double? = 75.0,
         occupants: Int = 3
     ) -> EnergyPrediction? {
         guard !bills.isEmpty else { return nil }
 
+        // Phase 5: Read resolved occupants from user model or parameter
+        let resolvedOccupants = max(1, user?.occupants ?? occupants)
+
+        // Phase 5: Sort bills chronologically by actualBillingDate descending
         let sorted = bills.sorted { $0.actualBillingDate > $1.actualBillingDate }
         guard let latest = sorted.first else { return nil }
 
+        let temp = temperatureC ?? 31.0
+        let hum = humidityPercent ?? 75.0
+
         let historicalAvg = bills.map(\.totalKWh).reduce(0, +) / Double(bills.count)
         let applianceKWh = appliances.map(\.estimatedMonthlyKwh).reduce(0, +)
-        let features = [historicalAvg, applianceKWh, temperatureC, humidityPercent, Double(occupants)]
+        let features = [historicalAvg, applianceKWh, temp, hum, Double(resolvedOccupants)]
 
         let mlValue = coreMLPredict(features)
         let kwh = max(1.0, mlValue ?? regressionPredict(features))
 
-        // Effective tariff from the latest bill
+        // Phase 5: Calculate next-month cost using Sri Lankan CEB tiered tariff or effective rate
         let billAmount = latest.monthlyBill > 0 ? latest.monthlyBill : latest.totalAmount
-        let rate = latest.totalKWh > 0 ? billAmount / latest.totalKWh : 0
+        let userEffectiveRate = latest.totalKWh > 0 ? (billAmount / latest.totalKWh) : 0.0
         let raw = latest.currency.uppercased()
-        let currency = (raw == "USD" || raw == "$") ? "$" : "Rs."
+        let isLKR = (raw != "USD" && raw != "$")
+        let currency = isLKR ? "Rs." : "$"
 
-        let tempExcess = max(0.0, temperatureC - 24.0)
-        let humidityExcess = max(0.0, humidityPercent - 60.0)
+        let predictedCost: Double
+        let effectiveRate: Double
+
+        if isLKR {
+            let cebEstimatedCost = Self.estimateCEBDomesticCost(kwh: kwh)
+            if userEffectiveRate > 5.0 {
+                // Calibrate with user's historical rate
+                let userBasedCost = kwh * userEffectiveRate
+                predictedCost = (cebEstimatedCost * 0.6) + (userBasedCost * 0.4)
+                effectiveRate = kwh > 0 ? (predictedCost / kwh) : userEffectiveRate
+            } else {
+                predictedCost = cebEstimatedCost
+                effectiveRate = kwh > 0 ? (predictedCost / kwh) : 25.0
+            }
+        } else {
+            effectiveRate = userEffectiveRate > 0 ? userEffectiveRate : 0.22
+            predictedCost = kwh * effectiveRate
+        }
+
+        let tempExcess = max(0.0, temp - 24.0)
+        let humidityExcess = max(0.0, hum - 60.0)
         let cooling = min(40.0, max(0.0, tempExcess * 3.5 + humidityExcess * 0.2))
 
         return EnergyPrediction(
             predictedKWh: kwh,
-            predictedCost: kwh * rate,
+            predictedCost: predictedCost,
             currency: currency,
             usedCoreML: mlValue != nil,
             billsAnalyzed: bills.count,
             historicalAvgKWh: historicalAvg,
             calibratedApplianceCount: appliances.count,
             applianceMonthlyKWh: applianceKWh,
-            temperatureC: temperatureC,
-            humidityPercent: humidityPercent,
-            occupants: occupants,
-            coolingLoadImpactPercent: cooling
+            temperatureC: temp,
+            humidityPercent: hum,
+            occupants: resolvedOccupants,
+            coolingLoadImpactPercent: cooling,
+            effectiveRatePerKWh: effectiveRate
         )
     }
 }

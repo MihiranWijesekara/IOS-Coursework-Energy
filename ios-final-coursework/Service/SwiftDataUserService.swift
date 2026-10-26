@@ -54,6 +54,7 @@ public final class SwiftDataUserService {
         province: String?,
         district: String?,
         town: String?,
+        occupants: Int = 3,
         password: String
     ) throws -> User {
         let trimmedFirst = firstName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -68,6 +69,7 @@ public final class SwiftDataUserService {
             province: province?.isEmpty == true ? nil : province,
             district: district?.isEmpty == true ? nil : district,
             town: town?.isEmpty == true ? nil : town,
+            occupants: occupants,
             passwordHash: hashPassword(password)
         )
 
