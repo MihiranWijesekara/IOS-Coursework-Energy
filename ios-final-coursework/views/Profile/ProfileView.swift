@@ -35,6 +35,9 @@ public struct ProfileView: View {
     @State private var passcodeAlertMessage = ""
     @State private var showPasscodeAlert = false
     
+    // Live WidgetKit snapshot (same App Group data the Home Screen widget reads)
+    @State private var widgetSnapshot: EnergyWidgetSnapshot = WidgetDataStore.shared.loadSnapshot()
+    
     public init() {}
     
     private var currentUser: User? {
@@ -132,6 +135,36 @@ public struct ProfileView: View {
                         RoundedRectangle(cornerRadius: 18)
                             .stroke(EnergyLensTheme.borderSubtle, lineWidth: 1)
                     )
+                    
+                    // Home Screen Widget (WidgetKit) live preview
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Home Screen Widget (WidgetKit)")
+                            .font(.system(size: 17, weight: .bold))
+                            .foregroundColor(EnergyLensTheme.textPrimary)
+                        
+                        Text("Live preview of the EnergyLens widget. Long-press your Home Screen and add \"EnergyLens Summary\" to see it there too.")
+                            .font(.system(size: 13, weight: .regular))
+                            .foregroundColor(EnergyLensTheme.textSecondary)
+                        
+                        EnergyLensWidgetEntryView(entry: EnergyWidgetEntry(date: Date(), snapshot: widgetSnapshot))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 160)
+                            .background(
+                                LinearGradient(
+                                    colors: [
+                                        Color(red: 0.10, green: 0.38, blue: 0.28),
+                                        Color(red: 0.22, green: 0.58, blue: 0.40)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                            .shadow(color: Color.black.opacity(0.12), radius: 8, x: 0, y: 4)
+                    }
+                    .onAppear {
+                        widgetSnapshot = WidgetDataStore.shared.loadSnapshot()
+                    }
                     
                     // Viva Account Actions
                     VStack(spacing: 12) {

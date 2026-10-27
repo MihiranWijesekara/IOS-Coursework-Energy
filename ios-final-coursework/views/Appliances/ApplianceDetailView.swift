@@ -46,7 +46,7 @@ public struct ApplianceDetailView: View {
     
     // Dynamic Calibrated calculations for this appliance
     private var calibratedData: (calibratedKwh: Double, percentage: Double, totalBillKwh: Double, monthlyCost: Double) {
-        let billKwh = pdfSavedBills.first?.totalKWh ?? savedBills.first?.consumptionKwh ?? 180.0
+        let billKwh = pdfSavedBills.first?.totalKWh ?? savedBills.first?.consumptionKwh ?? allAppliances.reduce(0.0) { $0 + $1.estimatedMonthlyKwh }
         
         if let app = appliance {
             let item = ApplianceCalibrationService.shared.calibrateSingleAppliance(

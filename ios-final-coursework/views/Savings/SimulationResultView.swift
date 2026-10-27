@@ -62,7 +62,7 @@ public struct SimulationResultView: View {
     }
     
     private var metrics: (savedKwh: Double, savedLkr: Double, beforeKwh: Double, afterKwh: Double, appName: String, monthName: String) {
-        let billKwh = sortedPDFBills.first?.totalKWh ?? savedBills.first?.consumptionKwh ?? 180.0
+        let billKwh = sortedPDFBills.first?.totalKWh ?? savedBills.first?.consumptionKwh ?? savedAppliances.reduce(0.0) { $0 + $1.estimatedMonthlyKwh }
         
         let beforeKwh: Double
         if let app = activeAppliance {

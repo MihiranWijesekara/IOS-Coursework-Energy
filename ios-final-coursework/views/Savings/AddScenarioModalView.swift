@@ -43,6 +43,27 @@ public struct AddScenarioModalView: View {
         return currencySymbol == "$" ? 0.288 : 30.0
     }
     
+    private var matchedAppliance: Appliance? {
+        savedAppliances.first { $0.name.lowercased() == selectedAppliance.lowercased() }
+    }
+    
+    /// Monthly kWh saved, based on the selected appliance's bill-calibrated consumption per usage hour.
+    private var scenarioSavings: (kwhSaved: Double, originalHours: Double) {
+        let originalHours = matchedAppliance?.hoursPerDay ?? navState.currentAcHours
+        guard let appliance = matchedAppliance else {
+            return (0.0, originalHours)
+        }
+        let billKwh = pdfSavedBills.first?.totalKWh ?? savedBills.first?.consumptionKwh ?? savedAppliances.reduce(0.0) { $0 + $1.estimatedMonthlyKwh }
+        let calibrated = ApplianceCalibrationService.shared.calibrateSingleAppliance(
+            appliance: appliance,
+            allAppliances: savedAppliances,
+            targetBillKwh: billKwh
+        )
+        let hourlyCalibratedKwh = calibrated.calibratedKwh / max(originalHours, 1.0)
+        let kwhSaved = hourlyCalibratedKwh * max(0.0, originalHours - newUsageHours)
+        return (kwhSaved, originalHours)
+    }
+    
     public var body: some View {
         ZStack {
             // Dark Teal / Deep Forest dim backdrop
@@ -86,7 +107,8 @@ public struct AddScenarioModalView: View {
                             navState.selectedAppliance = selectedAppliance
                             navState.simulationHours = newUsageHours
                             
-                            let kwhSaved = max(0.0, (navState.currentAcHours - newUsageHours) * 12.0)
+                            let metrics = scenarioSavings
+                            let kwhSaved = metrics.kwhSaved
                             let dollarSavedPerMonth = kwhSaved * effectiveTariffRate
                             
                             // Save scenario record into SwiftData
@@ -94,7 +116,7 @@ public struct AddScenarioModalView: View {
                                 scenarioTitle: savingAdjustment,
                                 applianceName: selectedAppliance,
                                 adjustmentType: savingAdjustment,
-                                originalHoursPerDay: navState.currentAcHours,
+                                originalHoursPerDay: metrics.originalHours,
                                 targetHoursPerDay: newUsageHours,
                                 estimatedKwhSaved: kwhSaved,
                                 estimatedLkrSaved: dollarSavedPerMonth
@@ -238,7 +260,7 @@ public struct AddScenarioModalView: View {
                         }
                         
                         // Footnote
-                        Text("Current usage · \(String(format: "%.0f", navState.currentAcHours)) h/day. Savings calculated at \(currencySymbol) \(String(format: "%.2f", effectiveTariffRate))/kWh based on your bill.")
+                        Text("Current usage · \(String(format: "%.0f", scenarioSavings.originalHours)) h/day. Savings calculated at \(currencySymbol) \(String(format: "%.2f", effectiveTariffRate))/kWh based on your bill.")
                             .font(.system(size: 13, weight: .regular))
                             .foregroundColor(EnergyLensTheme.textSecondary)
                             .lineSpacing(2)

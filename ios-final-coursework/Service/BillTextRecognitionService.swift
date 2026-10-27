@@ -241,7 +241,7 @@ public final class ElectricityBillOCRService: Sendable {
 
     /// Groups horizontally aligned text fragments on the same visual row and orders rows top-to-bottom.
     /// Grouping lines whose midY are within 0.012 normalized height and sorting left-to-right by minX for multi-column CEB/LECO bills.
-    public static func groupAndOrderLines(_ fragments: [RecognizedTextLine]) -> [RecognizedTextLine] {
+    nonisolated public static func groupAndOrderLines(_ fragments: [RecognizedTextLine]) -> [RecognizedTextLine] {
         // Vision coordinates have origin (0,0) at bottom-left, so higher midY is higher on screen.
         let sortedByY = fragments.sorted { lhs, rhs in
             if abs(lhs.boundingBox.midY - rhs.boundingBox.midY) > 0.012 {
@@ -271,7 +271,7 @@ public final class ElectricityBillOCRService: Sendable {
         }
     }
 
-    public static func cgImageOrientation(from uiOrientation: UIImage.Orientation) -> CGImagePropertyOrientation {
+    nonisolated public static func cgImageOrientation(from uiOrientation: UIImage.Orientation) -> CGImagePropertyOrientation {
         switch uiOrientation {
         case .up: return .up
         case .down: return .down

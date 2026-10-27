@@ -115,7 +115,8 @@ public final class WidgetDataStore: @unchecked Sendable {
             appliances: appliances,
             user: user,
             temperatureC: temperatureC,
-            humidityPercent: humidityPercent
+            humidityPercent: humidityPercent,
+            occupants: user?.occupants ?? 3
         )
 
         let month: String
@@ -134,9 +135,9 @@ public final class WidgetDataStore: @unchecked Sendable {
         }
 
         let cur = (latestBill?.currency.uppercased() == "USD" || latestBill?.currency == "$") ? "$" : (prediction?.currency ?? "Rs.")
-        let nextKWh = prediction?.predictedKWh ?? 115.0
-        let nextCost = prediction?.predictedCost ?? 2405.0
-        let coreML = prediction?.usedCoreML ?? true
+        let nextKWh = prediction?.predictedKWh ?? 0
+        let nextCost = prediction?.predictedCost ?? 0
+        let coreML = prediction?.usedCoreML ?? false
         let userTown = user?.town ?? "Colombo"
         let temp = temperatureC ?? 31.0
 

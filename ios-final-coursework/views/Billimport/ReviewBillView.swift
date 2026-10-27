@@ -887,24 +887,16 @@ public struct ReviewBillView: View {
                 totalKWh: draftToPersist.totalKWh.isEmpty ? consumption.replacingOccurrences(of: " kWh", with: "") : draftToPersist.totalKWh
             )
 
-            // Update Home Screen Widget Snapshot
-            let savedKWh = savedPDFBill.totalKWh > 0 ? savedPDFBill.totalKWh : (Double(consumption.replacingOccurrences(of: " kWh", with: "")) ?? 78.0)
-            let savedCost = savedPDFBill.monthlyBill > 0 ? savedPDFBill.monthlyBill : (savedPDFBill.totalAmount > 0 ? savedPDFBill.totalAmount : 1628.72)
-            let widgetMonth = savedPDFBill.billingMonth.isEmpty ? billingPeriod.uppercased() : savedPDFBill.billingMonth.uppercased()
-            
-            WidgetDataStore.shared.saveSnapshot(
-                EnergyWidgetSnapshot(
-                    billingMonth: widgetMonth,
-                    currentKWh: savedKWh,
-                    currentBillAmount: savedCost,
-                    currency: savedPDFBill.currency.isEmpty ? "Rs." : savedPDFBill.currency,
-                    predictedNextKWh: 115.0,
-                    predictedNextCost: 2405.0,
-                    usedCoreML: true,
-                    town: navState.town.isEmpty ? "Colombo" : navState.town,
-                    temperatureC: 31.0,
-                    updatedAt: Date()
-                )
+            // Update Home Screen Widget Snapshot using the live Core ML forecast
+            let allSavedBills = (try? modelContext.fetch(FetchDescriptor<SavedBill>())) ?? [savedPDFBill]
+            let allAppliances = (try? modelContext.fetch(FetchDescriptor<Appliance>())) ?? []
+            let currentUser = (try? modelContext.fetch(FetchDescriptor<User>()))?.first
+            WidgetDataStore.shared.syncFrom(
+                bills: allSavedBills,
+                appliances: allAppliances,
+                user: currentUser,
+                temperatureC: WeatherService.shared.currentTemperature,
+                humidityPercent: WeatherService.shared.currentHumidity
             )
 
             // Clear import screens from navigationStack so pressing Back returns cleanly to .home or .billHistory

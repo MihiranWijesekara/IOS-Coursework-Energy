@@ -47,7 +47,7 @@ public struct SavingsSimulatorView: View {
     }
     
     private var simulationMetrics: (kwhSaved: Double, lkrSaved: Double, oldKwh: Double, newKwh: Double) {
-        let billKwh = pdfSavedBills.first?.totalKWh ?? savedBills.first?.consumptionKwh ?? 180.0
+        let billKwh = pdfSavedBills.first?.totalKWh ?? savedBills.first?.consumptionKwh ?? savedAppliances.reduce(0.0) { $0 + $1.estimatedMonthlyKwh }
         
         let oldCalibratedKwh: Double
         if let app = activeAppliance {
