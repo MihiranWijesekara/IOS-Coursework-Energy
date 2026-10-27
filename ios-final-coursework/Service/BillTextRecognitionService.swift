@@ -122,7 +122,7 @@ public final class ElectricityBillOCRService: Sendable {
     }
 
     /// Applies a gentle non-destructive CIFilter contrast and sharpen pass (CIColorControls contrast 1.12, CISharpenLuminance sharpness 0.35).
-    public static func preprocessImageForOCR(_ inputImage: UIImage) -> UIImage? {
+    nonisolated public static func preprocessImageForOCR(_ inputImage: UIImage) -> UIImage? {
         guard let ciInput = CIImage(image: inputImage) else { return nil }
         let context = CIContext(options: [.useSoftwareRenderer: false])
 
@@ -148,7 +148,7 @@ public final class ElectricityBillOCRService: Sendable {
     }
 
     /// Executes Vision text recognition request on the specified CGImage.
-    private static func runVisionRequest(on cgImage: CGImage, orientation: CGImagePropertyOrientation) throws -> [RecognizedTextLine] {
+    nonisolated private static func runVisionRequest(on cgImage: CGImage, orientation: CGImagePropertyOrientation) throws -> [RecognizedTextLine] {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = false
@@ -1184,7 +1184,7 @@ public struct ExtractedBillData: Equatable, Sendable {
     }
 
     public static func cleanNumericString(from input: String) -> String {
-        var sanitized = input
+        let sanitized = input
             .replacingOccurrences(of: ",", with: "")
             .replacingOccurrences(of: "kWh", with: "")
             .replacingOccurrences(of: "KWH", with: "")

@@ -116,7 +116,7 @@ public final class ApplianceCalibrationService {
         allAppliances: [Appliance],
         targetBillKwh: Double?
     ) -> CalibratedApplianceItem {
-        let (items, totalKwh, _) = calibrateAppliances(appliances: allAppliances, targetBillKwh: targetBillKwh)
+        let (items, _, _) = calibrateAppliances(appliances: allAppliances, targetBillKwh: targetBillKwh)
         if let match = items.first(where: { $0.id == appliance.id || $0.name.lowercased() == appliance.name.lowercased() }) {
             return match
         }

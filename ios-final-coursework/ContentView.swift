@@ -83,12 +83,6 @@ public struct ContentView: View {
                     BillScanErrorView()
                 case .homeSkeleton:
                     HomeSkeletonView()
-                    
-                default:
-                        // Fallback placeholder for all other screens until they are implemented
-                        Text("Screen not implemented yet")
-                            .font(.headline)
-                            .foregroundColor(.gray)
                 }
             }
             .environmentObject(navState)

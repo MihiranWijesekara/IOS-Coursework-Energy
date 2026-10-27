@@ -35,7 +35,8 @@ public struct HomeDashboardView: View {
             appliances: savedAppliances,
             user: savedUsers.first,
             temperatureC: sharedWeather.currentTemperature,
-            humidityPercent: sharedWeather.currentHumidity
+            humidityPercent: sharedWeather.currentHumidity,
+            occupants: savedUsers.first?.occupants ?? navState.occupants
         )
     }
     

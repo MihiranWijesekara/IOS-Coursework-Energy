@@ -23,9 +23,9 @@ public struct WhyThisPredictionView: View {
             bills: sorted,
             appliances: savedAppliances,
             user: savedUsers.first,
-            occupants: savedUsers.first?.occupants ?? navState.occupants,
             temperatureC: weatherService.currentTemperature,
-            humidityPercent: weatherService.currentHumidity
+            humidityPercent: weatherService.currentHumidity,
+            occupants: savedUsers.first?.occupants ?? navState.occupants
         )
     }
     

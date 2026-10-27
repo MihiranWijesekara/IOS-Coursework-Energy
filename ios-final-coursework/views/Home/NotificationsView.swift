@@ -23,7 +23,8 @@ public struct NotificationsView: View {
             appliances: savedAppliances,
             user: savedUsers.first,
             temperatureC: weatherService.currentTemperature,
-            humidityPercent: weatherService.currentHumidity
+            humidityPercent: weatherService.currentHumidity,
+            occupants: savedUsers.first?.occupants ?? navState.occupants
         )
     }
     

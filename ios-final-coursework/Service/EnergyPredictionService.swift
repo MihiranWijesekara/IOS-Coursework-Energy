@@ -3,8 +3,7 @@
 //  ios-final-coursework
 //
 //  Next-month kWh / bill prediction. Uses the on-device Core ML model
-//  (EnergyBillPredictor.mlmodelc) when bundled, otherwise a multivariate
-//  linear regression trained on the same dataset (ML/energy_training_data.csv).
+//  (EnergyBillPredictor.mlmodelc / EnergyBillPredictor.mlmodel).
 //
 
 import Foundation
@@ -33,69 +32,22 @@ public final class EnergyPredictionService: @unchecked Sendable {
     private init() {}
 
     private lazy var coreMLModel: MLModel? = {
-        for name in ["EnergyBillPredictor", "EnergyBillPredictor 1", "EnergyBillPredictor_1"] {
-            if let url = Bundle.main.url(forResource: name, withExtension: "mlmodelc"),
-               let model = try? MLModel(contentsOf: url) {
+        let candidateNames = ["EnergyBillPredictor", "EnergyBillPredictor 1", "EnergyBillPredictor_1"]
+        for name in candidateNames {
+            if let compiledURL = Bundle.main.url(forResource: name, withExtension: "mlmodelc"),
+               let model = try? MLModel(contentsOf: compiledURL) {
+                return model
+            }
+        }
+        for name in candidateNames {
+            if let sourceURL = Bundle.main.url(forResource: name, withExtension: "mlmodel"),
+               let compiledURL = try? MLModel.compileModel(at: sourceURL),
+               let model = try? MLModel(contentsOf: compiledURL) {
                 return model
             }
         }
         return nil
     }()
-
-    private static let trainingRows: [[Double]] = [
-        [90, 55, 28, 75, 3, 94], [120, 80, 29, 78, 4, 128], [150, 95, 30, 80, 4, 155],
-        [180, 110, 31, 82, 5, 186], [210, 130, 31, 80, 5, 212], [75, 45, 27, 72, 2, 74],
-        [240, 150, 32, 84, 6, 245], [300, 190, 32, 85, 6, 297], [60, 35, 26, 70, 2, 58],
-        [135, 85, 29, 76, 3, 136], [165, 100, 30, 79, 4, 165], [195, 120, 31, 81, 5, 199],
-        [225, 140, 32, 83, 5, 228], [105, 65, 28, 74, 3, 106], [255, 160, 33, 86, 6, 260],
-        [85, 50, 27, 73, 2, 83], [145, 90, 29, 77, 4, 146], [170, 105, 30, 78, 4, 172],
-        [200, 125, 31, 82, 5, 202], [270, 170, 33, 87, 6, 274], [110, 70, 28, 75, 3, 112],
-        [320, 200, 34, 88, 7, 322], [130, 75, 28, 74, 3, 127], [190, 115, 30, 80, 5, 191],
-        [160, 95, 29, 77, 4, 160]
-    ]
-
-    private lazy var regressionWeights: [Double] = Self.trainRegression(rows: Self.trainingRows)
-
-    private static func trainRegression(rows: [[Double]]) -> [Double] {
-        let n = 6
-        var xtx = [[Double]](repeating: [Double](repeating: 0, count: n), count: n)
-        var xty = [Double](repeating: 0, count: n)
-        for row in rows {
-            let x = [1.0] + Array(row[0..<5])
-            let y = row[5]
-            for i in 0..<n {
-                xty[i] += x[i] * y
-                for j in 0..<n { xtx[i][j] += x[i] * x[j] }
-            }
-        }
-        for i in 1..<n { xtx[i][i] += 0.01 }   
-
-        var a = xtx
-        var b = xty
-        for col in 0..<n {
-            var pivot = col
-            for r in (col + 1)..<n where abs(a[r][col]) > abs(a[pivot][col]) { pivot = r }
-            if abs(a[pivot][col]) < 1e-12 { continue }
-            a.swapAt(col, pivot); b.swapAt(col, pivot)
-            let d = a[col][col]
-            for j in 0..<n { a[col][j] /= d }
-            b[col] /= d
-            for r in 0..<n where r != col {
-                let f = a[r][col]
-                if f == 0 { continue }
-                for j in 0..<n { a[r][j] -= f * a[col][j] }
-                b[r] -= f * b[col]
-            }
-        }
-        return b
-    }
-
-    private func regressionPredict(_ f: [Double]) -> Double {
-        let w = regressionWeights
-        var y = w[0]
-        for i in 0..<5 { y += w[i + 1] * f[i] }
-        return y
-    }
 
     private static let featureNames = ["historicalAvgKWh", "applianceMonthlyKWh", "temperatureC", "humidityPercent", "occupants"]
 
@@ -194,8 +146,10 @@ public final class EnergyPredictionService: @unchecked Sendable {
         let applianceKWh = appliances.map(\.estimatedMonthlyKwh).reduce(0, +)
         let features = [historicalAvg, applianceKWh, temp, hum, Double(resolvedOccupants)]
 
-        let mlValue = coreMLPredict(features)
-        let kwh = max(1.0, mlValue ?? regressionPredict(features))
+        guard let mlValue = coreMLPredict(features) else {
+            return nil
+        }
+        let kwh = max(1.0, mlValue)
 
         // Phase 5: Calculate next-month cost using Sri Lankan CEB tiered tariff or effective rate
         let billAmount = latest.monthlyBill > 0 ? latest.monthlyBill : latest.totalAmount
@@ -231,7 +185,7 @@ public final class EnergyPredictionService: @unchecked Sendable {
             predictedKWh: kwh,
             predictedCost: predictedCost,
             currency: currency,
-            usedCoreML: mlValue != nil,
+            usedCoreML: true,
             billsAnalyzed: bills.count,
             historicalAvgKWh: historicalAvg,
             calibratedApplianceCount: appliances.count,
