@@ -66,22 +66,19 @@ public struct AddScenarioModalView: View {
     
     public var body: some View {
         ZStack {
-            // Dark Teal / Deep Forest dim backdrop
+
             Color(red: 0.08, green: 0.22, blue: 0.22)
                 .ignoresSafeArea()
             
             VStack(spacing: 0) {
                 Spacer()
                 
-                // Bottom Sheet Container
                 VStack(spacing: 16) {
-                    // Grabber handle
                     Capsule()
                         .fill(Color(red: 0.85, green: 0.88, blue: 0.90))
                         .frame(width: 44, height: 5)
                         .padding(.top, 10)
-                    
-                    // Header Bar (Navy capsule buttons)
+
                     HStack {
                         Button(action: {
                             navState.navigate(to: .savingsSimulator)
@@ -111,7 +108,6 @@ public struct AddScenarioModalView: View {
                             let kwhSaved = metrics.kwhSaved
                             let dollarSavedPerMonth = kwhSaved * effectiveTariffRate
                             
-                            // Save scenario record into SwiftData
                             let scenario = SavingsScenario(
                                 scenarioTitle: savingAdjustment,
                                 applianceName: selectedAppliance,
@@ -143,10 +139,9 @@ public struct AddScenarioModalView: View {
                         .foregroundColor(EnergyLensTheme.textSecondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 20)
-                    
-                    // Form Card (Dropdowns)
+
                     VStack(alignment: .leading, spacing: 14) {
-                        // Appliance dropdown
+
                         VStack(alignment: .leading, spacing: 3) {
                             Text("Appliance")
                                 .font(.system(size: 13, weight: .regular))
@@ -173,7 +168,6 @@ public struct AddScenarioModalView: View {
                         Divider()
                             .background(EnergyLensTheme.fieldBorder)
                         
-                        // Saving adjustment dropdown
                         VStack(alignment: .leading, spacing: 3) {
                             Text("Saving adjustment")
                                 .font(.system(size: 13, weight: .regular))
@@ -205,13 +199,11 @@ public struct AddScenarioModalView: View {
                     )
                     .padding(.horizontal, 20)
                     
-                    // Blue Card: New usage
                     VStack(alignment: .leading, spacing: 12) {
                         Text("New usage")
                             .font(.system(size: 18, weight: .bold))
                             .foregroundColor(EnergyLensTheme.textPrimary)
-                        
-                        // Stepper row
+
                         HStack {
                             Button(action: {
                                 if newUsageHours > 0 { newUsageHours -= 1 }
@@ -243,8 +235,7 @@ public struct AddScenarioModalView: View {
                                     .cornerRadius(10)
                             }
                         }
-                        
-                        // Slider
+ 
                         Slider(value: $newUsageHours, in: 0...12, step: 1)
                             .tint(EnergyLensTheme.accentGreen)
                             .padding(.top, 4)
@@ -259,7 +250,6 @@ public struct AddScenarioModalView: View {
                                 .foregroundColor(EnergyLensTheme.textSecondary)
                         }
                         
-                        // Footnote
                         Text("Current usage · \(String(format: "%.0f", scenarioSavings.originalHours)) h/day. Savings calculated at \(currencySymbol) \(String(format: "%.2f", effectiveTariffRate))/kWh based on your bill.")
                             .font(.system(size: 13, weight: .regular))
                             .foregroundColor(EnergyLensTheme.textSecondary)

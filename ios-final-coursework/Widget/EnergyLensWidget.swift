@@ -9,7 +9,6 @@
 import SwiftUI
 import WidgetKit
 
-// MARK: - Timeline Entry
 public struct EnergyWidgetEntry: TimelineEntry {
     public let date: Date
     public let snapshot: EnergyWidgetSnapshot
@@ -20,7 +19,6 @@ public struct EnergyWidgetEntry: TimelineEntry {
     }
 }
 
-// MARK: - Timeline Provider
 public struct EnergyLensWidgetProvider: TimelineProvider {
     public init() {}
 
@@ -36,14 +34,14 @@ public struct EnergyLensWidgetProvider: TimelineProvider {
     public func getTimeline(in context: Context, completion: @escaping (Timeline<EnergyWidgetEntry>) -> Void) {
         let snapshot = WidgetDataStore.shared.loadSnapshot()
         let entry = EnergyWidgetEntry(date: Date(), snapshot: snapshot)
-        // Refresh every 30 minutes or when app calls WidgetCenter.shared.reloadAllTimelines()
+        
         let nextUpdate = Calendar.current.date(byAdding: .minute, value: 30, to: Date()) ?? Date().addingTimeInterval(1800)
         let timeline = Timeline(entries: [entry], policy: .after(nextUpdate))
         completion(timeline)
     }
 }
 
-// MARK: - Widget Views
+
 public struct EnergyLensWidgetEntryView: View {
     @Environment(\.widgetFamily) var family
     public var entry: EnergyWidgetEntry
@@ -77,7 +75,7 @@ public struct EnergyLensWidgetEntryView: View {
         }
     }
 
-    // MARK: - System Medium Layout
+
     private var mediumWidgetView: some View {
         HStack(alignment: .center, spacing: 14) {
             // Left Column: THIS MONTH Card
@@ -164,7 +162,7 @@ public struct EnergyLensWidgetEntryView: View {
         .padding(14)
     }
 
-    // MARK: - System Small Layout
+
     private var smallWidgetView: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text("THIS MONTH · \(entry.snapshot.billingMonth)")
@@ -210,7 +208,7 @@ public struct EnergyLensWidgetEntryView: View {
     }
 }
 
-// MARK: - Widget Definition
+
 public struct EnergyLensWidget: Widget {
     public let kind: String = "EnergyLensWidget"
 
